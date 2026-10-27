@@ -10,7 +10,7 @@ function statusCopy(phase, playbackState, direction) {
   if (phase === 'processing') return 'Processing...';
   if (phase === 'recording') return formatRemaining(controller.getElapsed()) || 'Recording';
   if (playbackState === 'playing') {
-    return direction === 'reverse' ? 'Playing reversed' : 'Playing forward';
+    return direction === 'reverse' ? 'Playing reversed' : 'Playing';
   }
   if (playbackState === 'paused') return 'Paused';
   if (phase === 'ready') return 'Ready';

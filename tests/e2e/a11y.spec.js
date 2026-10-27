@@ -21,7 +21,7 @@ test('keyboard reaches the controls, records, and closes the sheet @chromium', a
   }
   expect(order).toEqual([
     'Start recording',
-    'Play forward',
+    'Play',
     'Play reversed',
     'Share reversed',
     'More options',

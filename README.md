@@ -24,7 +24,7 @@ Everything happens in your browser. Nothing you record is uploaded.
 1. Open [tmrk.github.io/fliprec](https://tmrk.github.io/fliprec/) on your phone or computer.
 2. Tap the red button and allow microphone access. Tap it again to stop. A recording can be up
    to two minutes long.
-3. Tap Forward or Reverse to listen, and tap again to pause. Drag across the waveform to jump to
+3. Tap Play or Reverse to listen, and tap again to pause. Drag across the waveform to jump to
    another point.
 4. Tap Share reversed to send the backwards version through your phone's share sheet, for example
    to WhatsApp or Messages.

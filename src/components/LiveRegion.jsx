@@ -25,7 +25,7 @@ const LiveRegion = memo(function LiveRegion() {
         playbackState === 'playing' &&
         (prev.playbackState !== 'playing' || prev.direction !== direction);
       if (started) {
-        parts.push(direction === 'reverse' ? 'Playing reversed' : 'Playing forward');
+        parts.push(direction === 'reverse' ? 'Playing reversed' : 'Playing');
       }
       if (playbackState === 'paused' && prev.playbackState !== 'paused') parts.push('Paused');
       if (toast && toast.id !== prev.toastId && toast.message) parts.push(toast.message);

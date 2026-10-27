@@ -15,8 +15,8 @@ const PlayTile = memo(function PlayTile({ direction }) {
   const paused = active && playbackState === 'paused';
   const Icon = playing ? Pause : Play;
   const mirror = direction === 'reverse' && !playing;
-  const spoken = direction === 'reverse' ? 'reversed' : 'forward';
-  const label = direction === 'reverse' ? 'Reverse' : 'Forward';
+  const label = direction === 'reverse' ? 'Reverse' : 'Play';
+  const suffix = direction === 'reverse' ? ' reversed' : '';
 
   function onClick() {
     if (!enabled) return;
@@ -40,7 +40,7 @@ const PlayTile = memo(function PlayTile({ direction }) {
       {...pressHandlers}
       aria-disabled={enabled ? undefined : true}
       aria-pressed={playing}
-      aria-label={playing ? `Pause ${spoken}` : `Play ${spoken}`}
+      aria-label={playing ? `Pause${suffix}` : `Play${suffix}`}
       onClick={onClick}
     >
       <span className={mirror ? 'fr-tile__icon fr-tile__icon--mirror' : 'fr-tile__icon'}>

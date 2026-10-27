@@ -53,7 +53,7 @@ test.describe('record and play', () => {
     expect(shown).toBeLessThanOrEqual(4.5);
 
     await forward.click();
-    await expect(status).toHaveText('Playing forward');
+    await expect(status).toHaveText('Playing');
     await expect(forward).toHaveAttribute('aria-pressed', 'true');
     await expect(reverse).toHaveAttribute('aria-pressed', 'false');
 
@@ -73,7 +73,7 @@ test.describe('record and play', () => {
     await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow'))).toBeLessThanOrEqual(35);
 
     await forward.click();
-    await expect(status).toHaveText('Playing forward');
+    await expect(status).toHaveText('Playing');
     await expect(forward).toHaveAttribute('aria-pressed', 'true');
 
     await reverse.click();
