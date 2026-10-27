@@ -1,6 +1,6 @@
 // Visual review harness: renders dev preview states across a device matrix and writes
 // individual screenshots plus contact sheets.
-// Usage: node scripts/screens.mjs [--states a,b] [--devices x,y] [--theme dark|light] [--out dir]
+// Usage: node scripts/screens.mjs [--states a,b] [--devices x,y] [--theme dark|light] [--motion full|reduce] [--out dir]
 // Requires the dev server (npm run dev) on http://localhost:5173/fliprec/.
 import { chromium, webkit } from '@playwright/test';
 import { mkdir, readFile } from 'node:fs/promises';
@@ -26,6 +26,7 @@ const args = Object.fromEntries(
 const states = (args.states ?? 'empty,recording,ready,playing-reverse').split(',');
 const devices = (args.devices ?? 'iphone').split(',');
 const theme = args.theme ?? 'dark';
+const motion = args.motion === 'full' ? 'full' : 'reduce';
 const out = resolve(args.out ?? 'tests/e2e/__output__/screens');
 const base = args.url ?? 'http://localhost:5173/fliprec/';
 
@@ -43,7 +44,7 @@ for (const key of devices) {
     isMobile: device.engine === 'chromium' && key !== 'desktop',
     hasTouch: key !== 'desktop',
     colorScheme: theme,
-    reducedMotion: 'reduce',
+    reducedMotion: motion === 'full' ? 'no-preference' : 'reduce',
   });
   await context.addInitScript((t) => {
     try { localStorage.setItem('fliprec:theme', t); } catch {}

@@ -53,7 +53,13 @@ const Timer = memo(function Timer() {
   }, []);
 
   return (
-    <div className="fr-timer" role="timer" aria-live="off" aria-label="0:00.0" ref={rootRef}>
+    <div
+      className={phase === 'requesting' ? 'fr-timer fr-timer--requesting' : 'fr-timer'}
+      role="timer"
+      aria-live="off"
+      aria-label="0:00.0"
+      ref={rootRef}
+    >
       <span ref={mainRef} className="fr-timer__main" />
       <span ref={tenthRef} className="fr-timer__t" />
     </div>

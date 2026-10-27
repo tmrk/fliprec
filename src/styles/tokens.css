@@ -11,11 +11,19 @@
   --rec: #ff4d3f;
   --rec-press: #e8402f;
   --flip: #a595ff;
+  --play-a: #9bf2cf;
+  --play-b: #55d6e6;
+  --play: #62dcdd;
+  --flip-a: #b9a9ff;
+  --flip-b: #e59bef;
+  --on-tile: #101014;
   --on-accent: #0d0d10;
   --shadow-tile: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.5),
     0 10px 24px -6px rgba(0, 0, 0, 0.45);
   --shadow-tile-pressed: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 0 1px rgba(0, 0, 0, 0.6),
     0 3px 8px -4px rgba(0, 0, 0, 0.4);
+  --tile-shadow-play: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 14px 30px -14px rgba(85, 214, 230, 0.55);
+  --tile-shadow-flip: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 14px 30px -14px rgba(200, 150, 255, 0.55);
   --overlay: rgba(0, 0, 0, 0.5);
 }
 
@@ -31,10 +39,18 @@
   --rec: #f23a2c;
   --rec-press: #d93224;
   --flip: #6b57f2;
+  --play-a: #8debc8;
+  --play-b: #4ccbe0;
+  --play: #1fa9b4;
+  --flip-a: #ae9cff;
+  --flip-b: #e28fec;
+  --on-tile: #141416;
   --on-accent: #ffffff;
   --shadow-tile: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 1px 2px rgba(20, 20, 22, 0.1),
     0 10px 24px -8px rgba(20, 20, 22, 0.18);
   --shadow-tile-pressed: 0 0 1px rgba(20, 20, 22, 0.2), 0 2px 6px -3px rgba(20, 20, 22, 0.18);
+  --tile-shadow-play: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 12px 26px -14px rgba(40, 170, 200, 0.55);
+  --tile-shadow-flip: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 12px 26px -14px rgba(160, 110, 240, 0.55);
   --overlay: rgba(0, 0, 0, 0.5);
 }
 
@@ -58,8 +74,8 @@
   --ease-press: cubic-bezier(0.3, 0, 0.5, 1);
   --ease-spring: cubic-bezier(0.22, 1.45, 0.36, 1);
   --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
-  --dur-press: 60ms;
-  --dur-spring: 320ms;
+  --dur-press: 40ms;
+  --dur-spring: 300ms;
   --dur-sheet: 300ms;
   --dur-disc: 280ms;
 }

@@ -4,9 +4,11 @@ import { registerSW } from 'virtual:pwa-register';
 import App from './App.jsx';
 import { controller } from './engine/controller.js';
 import { initAnalytics } from './lib/analytics.js';
+import { installInputModality } from './lib/modality.js';
 import './styles/tokens.css';
 import './styles/global.css';
 
+installInputModality();
 document.addEventListener('touchstart', () => {}, { passive: true });
 
 if (import.meta.env.PROD) {

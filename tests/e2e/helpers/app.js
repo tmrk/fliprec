@@ -53,7 +53,7 @@ export async function importAudio(page, bytes, { closeSheet = false } = {}) {
 }
 
 export async function waitForShareReady(page) {
-  await expect(page.locator('.fr-secondary__share')).toHaveAttribute('aria-disabled', 'false', {
+  await expect(page.locator('.fr-header__share')).toHaveAttribute('aria-disabled', 'false', {
     timeout: 45_000,
   });
 }

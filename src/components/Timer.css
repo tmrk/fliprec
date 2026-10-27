@@ -14,6 +14,12 @@
   font-feature-settings: 'tnum' 1;
   color: var(--text);
   white-space: nowrap;
+  transition: color 180ms ease;
+}
+
+.fr-timer--requesting,
+.fr-timer--requesting .fr-timer__t {
+  color: var(--text-3);
 }
 
 .fr-timer__main {
@@ -29,4 +35,5 @@
   letter-spacing: 0;
   color: var(--text-2);
   text-align: left;
+  transition: color 180ms ease;
 }

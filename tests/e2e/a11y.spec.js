@@ -20,20 +20,24 @@ test('keyboard reaches the controls, records, and closes the sheet @chromium', a
     order.push(await focusedName(page));
   }
   expect(order).toEqual([
+    'Share reversed',
+    'More options',
     'Start recording',
     'Play',
     'Play reversed',
-    'Share reversed',
-    'More options',
   ]);
 
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Shift+Tab');
+  expect(await focusedName(page)).toBe('More options');
   await page.keyboard.press('Enter');
   await expect(page.locator('#fr-more-sheet[open]:not(.fr-sheet--prep)')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.locator('#fr-more-sheet')).toBeHidden();
   await expect(page.locator('#fr-more-button')).toBeFocused();
 
-  for (let i = 0; i < 4; i += 1) await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
   expect(await focusedName(page)).toBe('Start recording');
   await page.keyboard.press('Space');
   await expect(page.locator('.fr-live')).toContainText('Recording started');

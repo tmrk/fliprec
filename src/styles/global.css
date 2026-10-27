@@ -18,6 +18,7 @@ html {
   font-family: var(--font-ui);
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   touch-action: manipulation;
@@ -78,13 +79,17 @@ select {
 
 :focus-visible {
   outline: none;
+}
+
+html[data-input='keyboard'] :focus-visible {
+  outline: none;
   box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--text);
 }
 
-button:focus-visible,
-[role='slider']:focus-visible,
-[role='switch']:focus-visible,
-a:focus-visible {
+html[data-input='keyboard'] button:focus-visible,
+html[data-input='keyboard'] [role='slider']:focus-visible,
+html[data-input='keyboard'] [role='switch']:focus-visible,
+html[data-input='keyboard'] a:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--text) !important;
 }
@@ -118,8 +123,8 @@ a:focus-visible {
   box-shadow: var(--shadow-tile-pressed);
   transition:
     transform var(--dur-press) var(--ease-press),
-    background-color var(--dur-press) var(--ease-press),
-    filter var(--dur-press) var(--ease-press),
+    background-color 0ms linear,
+    filter 0ms linear,
     box-shadow var(--dur-press) var(--ease-press);
 }
 

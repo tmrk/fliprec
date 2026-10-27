@@ -5,7 +5,7 @@ import { importAudio, installShareShim, waitForShareReady } from './helpers/app.
 const wav = makeToneWav(1);
 
 function shareButton(page) {
-  return page.locator('.fr-secondary').getByRole('button', { name: 'Share reversed' });
+  return page.locator('.fr-header__share');
 }
 
 async function prepare(page) {

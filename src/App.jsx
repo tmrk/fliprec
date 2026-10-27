@@ -8,7 +8,6 @@ import LiveRegion from './components/LiveRegion.jsx';
 import MoreSheet from './components/MoreSheet.jsx';
 import PlayTile from './components/PlayTile.jsx';
 import RecordButton from './components/RecordButton.jsx';
-import SecondaryBar from './components/SecondaryBar.jsx';
 import StatusLine from './components/StatusLine.jsx';
 import Timer from './components/Timer.jsx';
 import Toast from './components/Toast.jsx';
@@ -50,7 +49,6 @@ export default function App() {
           <PlayTile direction="forward" />
           <PlayTile direction="reverse" />
         </div>
-        <SecondaryBar />
       </div>
       <Toast />
       <ConsentCard />

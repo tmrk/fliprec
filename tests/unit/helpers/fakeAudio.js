@@ -263,7 +263,14 @@ export function installFakeMediaRecorder(options = {}) {
     start(timeslice) {
       this.timeslice = timeslice;
       this.state = 'recording';
-      this.dispatch('start');
+      const mode = options.start || 'async';
+      if (mode === 'none') return;
+      const emit = () => {
+        if (this.state === 'inactive') return;
+        this.dispatch(mode === 'error' ? 'error' : 'start');
+      };
+      if (mode === 'sync') emit();
+      else queueMicrotask(emit);
     }
 
     stop() {

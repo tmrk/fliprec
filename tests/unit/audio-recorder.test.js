@@ -290,3 +290,101 @@ describe('createRecorder capture', () => {
     expect(onInterrupted).not.toHaveBeenCalled();
   });
 });
+
+function installStartMode(mode) {
+  media.restore();
+  media = installFakeMediaRecorder({
+    chunks: [new Blob(['one']), new Blob(['two']), new Blob(['three'])],
+    supported: (mime) => mime === 'audio/webm;codecs=opus',
+    start: mode,
+  });
+}
+
+describe('createRecorder capture start', () => {
+  it('stays starting until the recorder start event', async () => {
+    let releaseMic;
+    userMedia.mediaDevices.getUserMedia.mockImplementation(() => new Promise((resolve) => {
+      releaseMic = resolve;
+    }));
+    const recorder = makeRecorder();
+    const pending = recorder.start();
+    const stream = createFakeStream();
+    releaseMic(stream);
+    await Promise.resolve();
+    expect(recorder.state).toBe('starting');
+    expect(recorder.getElapsed()).toBe(0);
+    expect(media.instances).toHaveLength(1);
+    expect(media.instances[0].state).toBe('recording');
+    await pending;
+    expect(recorder.state).toBe('recording');
+    expect(stream.getTracks()[0].readyState).toBe('live');
+  });
+
+  it('falls back to recording when the start event never arrives', async () => {
+    vi.useFakeTimers();
+    installStartMode('none');
+    const stream = createFakeStream();
+    userMedia.mediaDevices.getUserMedia.mockResolvedValue(stream);
+    const recorder = makeRecorder();
+    let settled = false;
+    const pending = recorder.start().then((value) => {
+      settled = true;
+      return value;
+    });
+    await vi.advanceTimersByTimeAsync(499);
+    expect(settled).toBe(false);
+    expect(recorder.state).toBe('starting');
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(recorder.state).toBe('recording');
+    expect(stream.getTracks()[0].readyState).toBe('live');
+  });
+
+  it('cancels during the capture wait and releases the microphone', async () => {
+    vi.useFakeTimers();
+    installStartMode('none');
+    const stream = createFakeStream();
+    userMedia.mediaDevices.getUserMedia.mockResolvedValue(stream);
+    const recorder = makeRecorder();
+    const pending = recorder.start();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(recorder.state).toBe('starting');
+    expect(media.instances).toHaveLength(1);
+    recorder.cancel();
+    await expect(pending).resolves.toEqual({ cancelled: true });
+    expect(stream.getTracks().every((track) => track.readyState === 'ended')).toBe(true);
+    expect(recorder.state).toBe('idle');
+    await vi.advanceTimersByTimeAsync(500);
+    expect(recorder.state).toBe('idle');
+  });
+
+  it('stops during the capture wait and resolves as cancelled', async () => {
+    vi.useFakeTimers();
+    installStartMode('none');
+    const stream = createFakeStream();
+    userMedia.mediaDevices.getUserMedia.mockResolvedValue(stream);
+    const recorder = makeRecorder();
+    const starting = recorder.start();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(recorder.state).toBe('starting');
+    const stopping = recorder.stop();
+    await expect(starting).resolves.toEqual({ cancelled: true });
+    await expect(stopping).resolves.toMatchObject({ mimeType: '', elapsed: 0 });
+    expect(stream.getTracks().every((track) => track.readyState === 'ended')).toBe(true);
+    expect(recorder.state).toBe('idle');
+  });
+
+  it('rejects record-failed when the recorder errors before start', async () => {
+    installStartMode('error');
+    const stream = createFakeStream();
+    userMedia.mediaDevices.getUserMedia.mockResolvedValue(stream);
+    const onInterrupted = vi.fn();
+    const recorder = makeRecorder({ onInterrupted });
+    await expect(recorder.start()).rejects.toMatchObject({ kind: 'record-failed' });
+    expect(recorder.state).toBe('idle');
+    expect(recorder.getElapsed()).toBe(0);
+    expect(stream.getTracks().every((track) => track.readyState === 'ended')).toBe(true);
+    expect(onInterrupted).not.toHaveBeenCalled();
+    expect(session.type).toBe('playback');
+  });
+});

@@ -57,6 +57,7 @@ function readColors() {
     text: pick('--text'),
     text3: pick('--text-3'),
     flip: pick('--flip'),
+    play: pick('--play'),
   };
 }
 
@@ -199,7 +200,7 @@ const Waveform = memo(function Waveform() {
     const duration = controller.getDuration();
     const position = phaseNow === 'ready' ? controller.getPosition() : 0;
     const progress = duration > 0 ? clamp01(position / duration) : 0;
-    const played = shownDirRef.current === 'reverse' ? colors.flip : colors.text;
+    const played = shownDirRef.current === 'reverse' ? colors.flip : colors.play;
     const mid = height / 2;
     const total = count * PITCH - GAP;
     let x = Math.max(0, (width - total) / 2);

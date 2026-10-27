@@ -16,6 +16,7 @@ const LiveRegion = memo(function LiveRegion() {
     const prev = prevRef.current;
     const parts = [];
     if (prev) {
+      if (prev.phase !== 'requesting' && phase === 'requesting') parts.push('Starting microphone');
       if (prev.phase !== 'recording' && phase === 'recording') parts.push('Recording started');
       if (prev.phase === 'recording' && phase !== 'recording') {
         const seconds = controller.getDuration() || controller.getElapsed();

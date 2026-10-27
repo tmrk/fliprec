@@ -24,8 +24,13 @@ for (const [width, height] of VIEWPORTS) {
 
     const record = page.locator('button.fr-record');
     const tiles = page.locator('button.fr-tile');
+    const share = page.locator('.fr-header__share');
+    const more = page.locator('#fr-more-button');
     await expect(record).toBeVisible();
     await expect(tiles).toHaveCount(2);
+    await expect(page.locator('.fr-secondary')).toHaveCount(0);
+    await expect(share).toHaveAttribute('aria-label', 'Share reversed');
+    await expect(more).toHaveAttribute('aria-label', 'More options');
 
     const overflow = await page.evaluate(() => {
       const root = document.documentElement;
@@ -38,16 +43,37 @@ for (const [width, height] of VIEWPORTS) {
     expect(overflow.x, 'horizontal overflow').toBeLessThanOrEqual(1);
     expect(overflow.y, 'vertical overflow').toBeLessThanOrEqual(1);
 
+    const landscape = width > height && height <= 520;
+    const minRecord = landscape ? 88 : 112;
+    const minTile = landscape ? 72 : 104;
+
     const recordBox = await record.boundingBox();
     expect(recordBox).toBeTruthy();
-    expect(recordBox.width).toBeGreaterThanOrEqual(104);
-    expect(recordBox.height).toBeGreaterThanOrEqual(104);
+    expect(recordBox.width).toBeGreaterThanOrEqual(minRecord - 0.5);
+    expect(recordBox.height).toBeGreaterThanOrEqual(minRecord - 0.5);
+    expect(Math.abs(recordBox.width - recordBox.height)).toBeLessThan(1.5);
     expectInside(recordBox, width, height);
+
+    const headerBox = await page.locator('.fr-header').boundingBox();
+    const nameBox = await page.locator('.fr-header__name').boundingBox();
+    const shareBox = await share.boundingBox();
+    const moreBox = await more.boundingBox();
+    expect(headerBox.height).toBeGreaterThanOrEqual(47.5);
+    expect(headerBox.height).toBeLessThanOrEqual(48.5);
+    expect(nameBox.x).toBeLessThan(shareBox.x);
+    expect(shareBox.x + shareBox.width).toBeLessThanOrEqual(moreBox.x + 1);
+    expect(shareBox.width).toBeGreaterThanOrEqual(44);
+    expect(shareBox.height).toBeGreaterThanOrEqual(44);
+    expect(moreBox.width).toBeGreaterThanOrEqual(44);
+    expect(moreBox.height).toBeGreaterThanOrEqual(44);
+    expectInside(shareBox, width, height);
+    expectInside(moreBox, width, height);
 
     for (const tile of await tiles.all()) {
       const box = await tile.boundingBox();
       expect(box).toBeTruthy();
-      expect(box.height).toBeGreaterThanOrEqual(64);
+      expect(box.height).toBeGreaterThanOrEqual(minTile - 0.5);
+      expect(box.y).toBeGreaterThan(recordBox.y + recordBox.height - 1);
       expectInside(box, width, height);
     }
 

@@ -1,16 +1,25 @@
 .fr-header {
-  height: 44px;
+  height: 48px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   gap: 8px;
   flex: none;
+  min-width: 0;
+}
+
+.fr-header__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .fr-header__mark {
   display: block;
   width: 22px;
   height: 22px;
+  flex: none;
 }
 
 .fr-header__ring {
@@ -34,4 +43,92 @@
   letter-spacing: -0.01em;
   line-height: 1;
   color: var(--text);
+  white-space: nowrap;
+}
+
+.fr-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.fr-header__btn {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: none;
+  display: grid;
+  place-items: center;
+  flex: none;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fr-header__btn::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+}
+
+.fr-header__glyph {
+  display: flex;
+}
+
+.fr-header__glyph--pop {
+  animation: fr-share-pop 320ms var(--ease-spring);
+}
+
+@keyframes fr-share-pop {
+  from {
+    transform: scale(0.6);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+.fr-header__btn.fr-press[data-pressed],
+.fr-header__btn.fr-press:active {
+  transform: scale(0.9);
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+.fr-header__btn[aria-disabled='true'] {
+  color: var(--text-3);
+}
+
+.fr-header__btn[aria-disabled='true'].fr-press[data-pressed],
+.fr-header__btn[aria-disabled='true'].fr-press:active {
+  transform: none;
+  background: var(--surface);
+  box-shadow: none;
+  filter: none;
+}
+
+.fr-spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--text-3);
+  border-top-color: var(--text);
+  animation: fr-spin 0.7s linear infinite;
+  flex: none;
+}
+
+@keyframes fr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fr-header__glyph--pop,
+  .fr-spinner {
+    animation: none !important;
+  }
 }

@@ -6,7 +6,7 @@ import { formatRemaining } from '../lib/format.js';
 import './StatusLine.css';
 
 function statusCopy(phase, playbackState, direction) {
-  if (phase === 'requesting') return 'Waiting for microphone...';
+  if (phase === 'requesting') return 'Starting microphone';
   if (phase === 'processing') return 'Processing...';
   if (phase === 'recording') return formatRemaining(controller.getElapsed()) || 'Recording';
   if (playbackState === 'playing') {
@@ -46,7 +46,16 @@ const StatusLine = memo(function StatusLine() {
   return (
     <p className="fr-status">
       {phase === 'recording' ? <span className="fr-status__dot" aria-hidden="true" /> : null}
-      <span ref={textRef} />
+      <span className="fr-status__copy">
+        <span ref={textRef} />
+        {phase === 'requesting' ? (
+          <span className="fr-status__dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+        ) : null}
+      </span>
     </p>
   );
 });

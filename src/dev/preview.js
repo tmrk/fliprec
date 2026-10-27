@@ -130,6 +130,10 @@ const scenarios = {
     state: base(),
     model: silent,
   },
+  requesting: {
+    state: base({ phase: 'requesting' }),
+    model: silent,
+  },
   recording: {
     state: base({ phase: 'recording' }),
     model: liveModel(7.4),

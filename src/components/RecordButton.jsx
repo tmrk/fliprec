@@ -2,6 +2,7 @@ import { memo, useLayoutEffect, useRef } from 'react';
 import { controller } from '../engine/controller.js';
 import { useFrameLoop } from '../hooks/useFrameLoop.js';
 import { useStore } from '../hooks/useStore.js';
+import * as haptics from '../lib/haptics.js';
 import { pressHandlers } from '../lib/pressable.js';
 import './RecordButton.css';
 
@@ -18,7 +19,9 @@ const RecordButton = memo(function RecordButton() {
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const recording = phase === 'recording';
-  const busy = phase === 'requesting' || phase === 'processing';
+  const requesting = phase === 'requesting';
+  const ripplesRef = useRef(null);
+  const prevPhaseRef = useRef(phase);
 
   const writeRef = useRef(() => {});
   writeRef.current = (relayout) => {
@@ -67,8 +70,22 @@ const RecordButton = memo(function RecordButton() {
 
   useFrameLoop(recording, () => writeRef.current(false));
 
+  useLayoutEffect(() => {
+    const previous = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+    if (previous !== 'requesting' || phase !== 'recording') return;
+    const ripples = ripplesRef.current;
+    if (!ripples) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const rings = ripples.querySelectorAll('.fr-record__ripple');
+    rings.forEach((ring) => ring.classList.remove('fr-record__ripple--on'));
+    void ripples.offsetWidth;
+    rings.forEach((ring) => ring.classList.add('fr-record__ripple--on'));
+  }, [phase]);
+
   function onClick() {
-    if (busy) return;
+    if (requesting || phase === 'processing') return;
+    haptics.tap();
     controller.toggleRecord();
   }
 
@@ -88,10 +105,15 @@ const RecordButton = memo(function RecordButton() {
       className={className}
       {...pressHandlers}
       onClick={onClick}
-      disabled={busy}
+      disabled={phase === 'processing'}
+      aria-disabled={requesting ? 'true' : undefined}
       aria-pressed={recording}
-      aria-label={recording ? 'Stop recording' : 'Start recording'}
+      aria-label={requesting ? 'Starting microphone' : recording ? 'Stop recording' : 'Start recording'}
     >
+      <span ref={ripplesRef} className="fr-record__ripples" aria-hidden="true">
+        <span className="fr-record__ripple" />
+        <span className="fr-record__ripple fr-record__ripple--echo" />
+      </span>
       <svg ref={svgRef} className="fr-record__svg" aria-hidden="true">
         <circle className="fr-record__track" />
         <circle className="fr-record__progress" />

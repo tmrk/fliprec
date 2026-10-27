@@ -1,7 +1,7 @@
 .fr-toast {
   position: absolute;
   z-index: 6;
-  top: calc(max(env(safe-area-inset-top), 10px) + 48px);
+  top: calc(max(env(safe-area-inset-top), 10px) + 52px);
   left: 16px;
   right: 16px;
   margin-inline: auto;

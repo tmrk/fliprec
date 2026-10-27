@@ -12,6 +12,7 @@ const CONSTRAINTS = {
 };
 
 const LEVEL_ATTACK = 0.35;
+const CAPTURE_START_MS = 500;
 
 function errorWithKind(message, kind) {
   const error = new Error(message);
@@ -69,7 +70,39 @@ export function createRecorder({
   let visibilityHandler = null;
   let cleaning = false;
   let stopResolve = null;
+  let arming = null;
   const trackCleanups = [];
+
+  function finishArming(value) {
+    const current = arming;
+    if (!current) return;
+    arming = null;
+    clearTimeout(current.timer);
+    current.recorder.removeEventListener('start', current.onStart);
+    current.recorder.removeEventListener('error', current.onError);
+    current.resolve(value);
+  }
+
+  function waitForCapture(recorder) {
+    return new Promise((resolve) => {
+      const current = {
+        recorder,
+        resolve,
+        timer: 0,
+        onStart() {
+          finishArming('start');
+        },
+        onError() {
+          finishArming('error');
+        },
+      };
+      arming = current;
+      current.timer = setTimeout(() => finishArming('timeout'), CAPTURE_START_MS);
+      recorder.addEventListener('start', current.onStart);
+      recorder.addEventListener('error', current.onError);
+      if (cancelRequested || state !== 'starting') finishArming('cancelled');
+    });
+  }
 
   function notify(reason) {
     try {
@@ -114,6 +147,7 @@ export function createRecorder({
   function cleanup() {
     if (cleaning) return;
     cleaning = true;
+    finishArming('cancelled');
     const resolvePending = stopResolve;
     stopResolve = null;
     try {
@@ -251,10 +285,32 @@ export function createRecorder({
 
       // No timeslice: one complete file at stop() decodes most reliably (Safari's
       // timesliced MP4 fragments are a known decodeAudioData failure source).
+      // The start event (or a short fallback) is the moment capture is actually live.
+      if (cancelRequested || state !== 'starting') {
+        cleanup();
+        state = 'idle';
+        return { cancelled: true };
+      }
+      const pendingCapture = waitForCapture(mediaRecorder);
       try {
         mediaRecorder.start();
       } catch (error) {
+        finishArming('cancelled');
         throw errorWithKind('Recording failed', 'record-failed');
+      }
+      const outcome = await pendingCapture;
+      if (outcome === 'error') {
+        throw errorWithKind('Recording failed', 'record-failed');
+      }
+      if (outcome !== 'start' && outcome !== 'timeout') {
+        cleanup();
+        state = 'idle';
+        return { cancelled: true };
+      }
+      if (cancelRequested || state !== 'starting') {
+        cleanup();
+        state = 'idle';
+        return { cancelled: true };
       }
       startedAt = performance.now();
       frozenElapsed = null;
@@ -284,6 +340,7 @@ export function createRecorder({
   function stop() {
     if (state === 'starting') {
       cancelRequested = true;
+      finishArming('cancelled');
       const pending = startPromise || Promise.resolve();
       return pending.then(() => emptyResult(), () => emptyResult());
     }
@@ -330,6 +387,7 @@ export function createRecorder({
   function cancel() {
     if (state === 'starting') {
       cancelRequested = true;
+      finishArming('cancelled');
       return;
     }
     if (state !== 'recording' && state !== 'stopping') return;

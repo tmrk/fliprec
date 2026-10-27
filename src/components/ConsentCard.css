@@ -1,7 +1,7 @@
 .fr-consent {
   position: absolute;
   z-index: 5;
-  top: calc(max(env(safe-area-inset-top), 10px) + 48px);
+  top: calc(max(env(safe-area-inset-top), 10px) + 52px);
   left: calc(16px + env(safe-area-inset-left));
   right: calc(16px + env(safe-area-inset-right));
   padding: 14px;

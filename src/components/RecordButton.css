@@ -12,6 +12,8 @@
   color: var(--text);
   display: grid;
   place-items: center;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .fr-record.fr-press[data-pressed],
@@ -24,13 +26,14 @@
 .fr-record:disabled,
 .fr-record.fr-press:disabled,
 .fr-record.fr-press:disabled:active,
-.fr-record.fr-press:disabled[data-pressed] {
+.fr-record.fr-press:disabled[data-pressed],
+.fr-record.fr-press[aria-disabled='true'],
+.fr-record.fr-press[aria-disabled='true']:active,
+.fr-record.fr-press[aria-disabled='true'][data-pressed] {
   background: transparent;
   transform: none;
-}
-
-.fr-record--requesting:disabled {
-  opacity: 0.55;
+  box-shadow: none;
+  filter: none;
 }
 
 .fr-record__svg {
@@ -52,6 +55,11 @@
 .fr-record__track {
   stroke: var(--text);
   opacity: 0.92;
+  transition: stroke 180ms ease, opacity 180ms ease;
+}
+
+.fr-record--requesting .fr-record__track {
+  stroke: var(--text-3);
 }
 
 .fr-record__progress,
@@ -79,6 +87,12 @@
 .fr-record--processing .fr-record__spin {
   opacity: 1;
   animation: fr-record-spin 1s linear infinite;
+}
+
+.fr-record--requesting .fr-record__spin {
+  opacity: 1;
+  stroke-dasharray: calc(var(--circ) * 0.18) calc(var(--circ) * 0.82);
+  animation: fr-record-spin 0.9s linear infinite;
 }
 
 @keyframes fr-record-spin {
@@ -109,4 +123,75 @@
 
 .fr-record--processing .fr-record__disc {
   opacity: 0.5;
+}
+
+.fr-record--requesting .fr-record__disc {
+  width: calc((100% - 18px) * 0.76);
+  height: calc((100% - 18px) * 0.76);
+  border-radius: 50%;
+  animation: fr-record-breathe 1.1s ease-in-out infinite;
+}
+
+@keyframes fr-record-breathe {
+  0%,
+  100% {
+    transform: scale(0.94);
+  }
+  50% {
+    transform: scale(1);
+  }
+}
+
+.fr-record__ripples {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.fr-record__ripple {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid var(--rec);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.fr-record__ripple--on {
+  animation: fr-record-ripple 620ms cubic-bezier(0.2, 0.7, 0.3, 1) 1;
+}
+
+.fr-record__ripple--echo.fr-record__ripple--on {
+  animation: fr-record-ripple-echo 620ms cubic-bezier(0.2, 0.7, 0.3, 1) 120ms 1;
+}
+
+@keyframes fr-record-ripple {
+  from {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
+@keyframes fr-record-ripple-echo {
+  from {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.22);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fr-record--requesting .fr-record__spin,
+  .fr-record--requesting .fr-record__disc,
+  .fr-record__ripple--on {
+    animation: none !important;
+  }
 }
