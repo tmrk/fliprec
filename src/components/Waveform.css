@@ -1,0 +1,29 @@
+.fr-wave {
+  width: 100%;
+  height: 56px;
+  height: clamp(56px, 14dvh, 150px);
+  touch-action: none;
+  min-width: 0;
+}
+
+.fr-wave__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.fr-wave--flip .fr-wave__canvas {
+  animation: fr-wave-flip 240ms linear;
+}
+
+@keyframes fr-wave-flip {
+  0% {
+    transform: scaleX(1);
+  }
+  50% {
+    transform: scaleX(0.02);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}

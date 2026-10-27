@@ -1,0 +1,37 @@
+.fr-error {
+  width: 100%;
+  max-height: 100%;
+  overflow: auto;
+  padding: 12px 14px;
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-tile);
+  text-align: left;
+}
+
+.fr-error__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.fr-error__body {
+  margin: 6px 0 0;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--text-2);
+}
+
+.fr-error__btn {
+  margin-top: 10px;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: var(--r-pill);
+  background: var(--text);
+  color: var(--on-accent);
+  font-size: 15px;
+  font-weight: 600;
+}

@@ -1,0 +1,32 @@
+.fr-timer {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  max-width: 100%;
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 52px;
+  font-size: clamp(52px, min(19vw, 10dvh), 96px);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.fr-timer__main {
+  display: inline-block;
+  min-width: 4ch;
+  text-align: right;
+}
+
+.fr-timer__t {
+  display: inline-block;
+  min-width: 1.6ch;
+  font-size: 0.55em;
+  letter-spacing: 0;
+  color: var(--text-2);
+  text-align: left;
+}

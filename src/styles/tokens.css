@@ -1,0 +1,65 @@
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0d0d10;
+  --surface: #17171b;
+  --surface-2: #212127;
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #f5f4f0;
+  --text-2: rgba(245, 244, 240, 0.62);
+  --text-3: rgba(245, 244, 240, 0.34);
+  --rec: #ff4d3f;
+  --rec-press: #e8402f;
+  --flip: #a595ff;
+  --on-accent: #0d0d10;
+  --shadow-tile: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.5),
+    0 10px 24px -6px rgba(0, 0, 0, 0.45);
+  --shadow-tile-pressed: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 0 1px rgba(0, 0, 0, 0.6),
+    0 3px 8px -4px rgba(0, 0, 0, 0.4);
+  --overlay: rgba(0, 0, 0, 0.5);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f3f2ee;
+  --surface: #ffffff;
+  --surface-2: #e9e7e1;
+  --line: rgba(20, 20, 22, 0.08);
+  --text: #141416;
+  --text-2: rgba(20, 20, 22, 0.62);
+  --text-3: rgba(20, 20, 22, 0.34);
+  --rec: #f23a2c;
+  --rec-press: #d93224;
+  --flip: #6b57f2;
+  --on-accent: #ffffff;
+  --shadow-tile: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 1px 2px rgba(20, 20, 22, 0.1),
+    0 10px 24px -8px rgba(20, 20, 22, 0.18);
+  --shadow-tile-pressed: 0 0 1px rgba(20, 20, 22, 0.2), 0 2px 6px -3px rgba(20, 20, 22, 0.18);
+  --overlay: rgba(0, 0, 0, 0.5);
+}
+
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+  --font-display: ui-rounded, 'SF Pro Rounded', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    sans-serif;
+  --r-tile: 28px;
+  --r-pill: 999px;
+  --r-sheet: 28px;
+  --r-sm: 14px;
+  --r-card: 20px;
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 24px;
+  --s7: 32px;
+  --ease-press: cubic-bezier(0.3, 0, 0.5, 1);
+  --ease-spring: cubic-bezier(0.22, 1.45, 0.36, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-press: 60ms;
+  --dur-spring: 320ms;
+  --dur-sheet: 300ms;
+  --dur-disc: 280ms;
+}

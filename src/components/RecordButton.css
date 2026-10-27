@@ -1,0 +1,112 @@
+.fr-record {
+  --circ: 300px;
+  --dash: 300px;
+  --spin-on: 66px;
+  --spin-off: 234px;
+  position: relative;
+  width: var(--rec-size);
+  height: var(--rec-size);
+  margin-inline: auto;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  display: grid;
+  place-items: center;
+}
+
+.fr-record.fr-press[data-pressed],
+.fr-record.fr-press:active {
+  background: transparent;
+  box-shadow: none;
+  transform: scale(0.93);
+}
+
+.fr-record:disabled,
+.fr-record.fr-press:disabled,
+.fr-record.fr-press:disabled:active,
+.fr-record.fr-press:disabled[data-pressed] {
+  background: transparent;
+  transform: none;
+}
+
+.fr-record--requesting:disabled {
+  opacity: 0.55;
+}
+
+.fr-record__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.fr-record__track,
+.fr-record__progress,
+.fr-record__spin {
+  fill: none;
+  stroke-width: 4px;
+}
+
+.fr-record__track {
+  stroke: var(--text);
+  opacity: 0.92;
+}
+
+.fr-record__progress,
+.fr-record__spin {
+  stroke: var(--rec);
+  stroke-linecap: round;
+}
+
+.fr-record__progress {
+  stroke-dasharray: var(--circ) var(--circ);
+  stroke-dashoffset: var(--dash);
+  opacity: 0;
+}
+
+.fr-record--recording .fr-record__progress {
+  opacity: 1;
+}
+
+.fr-record__spin {
+  stroke-dasharray: var(--spin-on) var(--spin-off);
+  stroke-dashoffset: 0;
+  opacity: 0;
+}
+
+.fr-record--processing .fr-record__spin {
+  opacity: 1;
+  animation: fr-record-spin 1s linear infinite;
+}
+
+@keyframes fr-record-spin {
+  to {
+    stroke-dashoffset: calc(var(--circ) * -1);
+  }
+}
+
+.fr-record__disc {
+  width: calc(100% - 18px);
+  height: calc(100% - 18px);
+  border-radius: 50%;
+  background: var(--rec);
+  pointer-events: none;
+  transition:
+    width var(--dur-disc) var(--ease-spring),
+    height var(--dur-disc) var(--ease-spring),
+    border-radius var(--dur-disc) var(--ease-spring),
+    opacity 180ms ease;
+}
+
+.fr-record--recording .fr-record__disc,
+.fr-record--processing .fr-record__disc {
+  width: 40%;
+  height: 40%;
+  border-radius: 22%;
+}
+
+.fr-record--processing .fr-record__disc {
+  opacity: 0.5;
+}

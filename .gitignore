@@ -1,0 +1,46 @@
+# Dependencies & build output
+node_modules/
+dist/
+dev-dist/
+coverage/
+*.tsbuildinfo
+.vite/
+
+# Environment files (may contain secrets)
+.env
+.env.*
+
+# Test artefacts
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+tests/e2e/__output__/
+/tmp/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local working notes and tool state (never published)
+AGENTS.md
+CLAUDE.md
+CLAUDE.local.md
+RECENT_CHANGES.md
+ARCHITECTURE.md
+IMPLEMENTATION_PLAN.md
+TASKS.md
+DECISIONS.md
+TESTING_NOTES.md
+DESIGN.md
+.agent/
+.claude/
+.grok/
+.cursor/
+.aider*
+.codex/

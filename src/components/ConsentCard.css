@@ -1,0 +1,45 @@
+.fr-consent {
+  position: absolute;
+  z-index: 5;
+  top: calc(max(env(safe-area-inset-top), 10px) + 48px);
+  left: calc(16px + env(safe-area-inset-left));
+  right: calc(16px + env(safe-area-inset-right));
+  padding: 14px;
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-tile);
+  animation: fr-toast-in 200ms var(--ease-sheet);
+}
+
+.fr-consent__text {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.fr-consent__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.fr-btn {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.fr-btn--ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+.fr-btn--fill {
+  background: var(--text);
+  color: var(--on-accent);
+}
