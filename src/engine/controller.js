@@ -12,12 +12,13 @@ import { createPlayer } from '../audio/player.js';
 import { clear as clearPersisted, load as loadPersisted, save as savePersisted } from '../audio/persist.js';
 import { createRecorder } from '../audio/recorder.js';
 import { reverseAudioBuffer } from '../audio/reverse.js';
+import { playSfx, setSfxEnabled } from '../audio/sfx.js';
 import { encodeWav } from '../audio/wav.js';
 import { grant, revoke, track } from '../lib/analytics.js';
 import { exportFilename } from '../lib/filenames.js';
 import * as haptics from '../lib/haptics.js';
 import { canShareFiles, downloadBlob, shareFiles } from '../lib/share.js';
-import { applyThemePreference, store } from './store.js';
+import { applyThemePreference, store, writeSoundsPreference } from './store.js';
 
 /** Fired after seek / pause / stop so paused timers and waveforms can refresh. */
 export const TRANSPORT_EVENT = 'fliprec:transport';
@@ -48,6 +49,8 @@ let sourceBlob = null;
 let sourceMime = '';
 let exportAbort = null;
 let undoBackup = null;
+
+setSfxEnabled(store.getState().sounds);
 
 const recorder = createRecorder({
   getContext,
@@ -180,6 +183,7 @@ function failStart(id, error) {
     restoreIdle(id);
     return;
   }
+  playSfx('error');
   const recording = store.getState().recording;
   phase = recording ? 'ready' : 'empty';
   store.setState({
@@ -218,7 +222,8 @@ function startRecording() {
   store.setState({ phase: 'requesting', error: null });
   let pending;
   try {
-    pending = recorder.start();
+    const cueEnd = playSfx('start');
+    pending = recorder.start({ notBefore: cueEnd });
   } catch (error) {
     failStart(id, error);
     return;
@@ -266,6 +271,7 @@ async function consumeStop(id) {
   try {
     result = await recorder.stop();
   } catch {
+    if (id === sessionId) playSfx('error');
     restoreIdle(id, "Couldn't process the recording");
     return;
   }
@@ -275,9 +281,12 @@ async function consumeStop(id) {
     return;
   }
   if (!result?.blob || result.blob.size === 0) {
+    playSfx('error');
     restoreIdle(id, 'Nothing was recorded. Try again.');
     return;
   }
+  // Once the stop cue has played, later failures only toast so two cues never collide.
+  playSfx('stop');
   try {
     const bytes = await result.blob.arrayBuffer();
     if (id !== sessionId) return;
@@ -440,9 +449,11 @@ function togglePlay(direction) {
   }
   haptics.tap();
   if (current.state === 'playing' && current.direction === dir) {
+    playSfx('pause');
     player.pause();
     return;
   }
+  playSfx(dir === 'reverse' ? 'reverse' : 'play');
   if (current.state === 'paused' && current.direction === dir) {
     player.resume();
     return;
@@ -582,6 +593,7 @@ async function consumeImport(id, file) {
     if (trimmed) showToast('Imported the first 5 minutes');
     track('audio_imported');
   } catch {
+    if (id === sessionId) playSfx('error');
     restoreIdle(id, "That file couldn't be opened as audio");
   }
 }
@@ -707,6 +719,14 @@ function setTheme(next) {
   store.setState({ theme: next });
 }
 
+function setSounds(on) {
+  const enabled = Boolean(on);
+  writeSoundsPreference(enabled);
+  store.setState({ sounds: enabled });
+  setSfxEnabled(enabled);
+  if (enabled) playSfx('tap');
+}
+
 function setConsent(granted) {
   store.setState({ consent: granted ? 'granted' : 'denied' });
   if (granted) grant();
@@ -807,6 +827,7 @@ export const controller = {
   clearRecording,
   undoClear,
   setTheme,
+  setSounds,
   setConsent,
   openSheet,
   closeSheet,

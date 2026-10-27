@@ -2,6 +2,7 @@ import { analyticsAvailable } from '../lib/analytics.js';
 import { getConsent } from '../lib/consent.js';
 
 export const THEME_KEY = 'fliprec:theme';
+export const SOUNDS_KEY = 'fliprec:sounds';
 
 export function readThemePreference() {
   try {
@@ -11,6 +12,22 @@ export function readThemePreference() {
     /* private mode or denied storage */
   }
   return 'dark';
+}
+
+export function readSoundsPreference() {
+  try {
+    return localStorage.getItem(SOUNDS_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+export function writeSoundsPreference(on) {
+  try {
+    localStorage.setItem(SOUNDS_KEY, on ? 'on' : 'off');
+  } catch {
+    /* private mode or denied storage */
+  }
 }
 
 export function resolveTheme(pref) {
@@ -81,6 +98,7 @@ function createInitialState() {
     error: null,
     toast: null,
     theme: readThemePreference(),
+    sounds: readSoundsPreference(),
     consent: getConsent(),
     analyticsAvailable: analyticsAvailable(),
     sheetOpen: false,

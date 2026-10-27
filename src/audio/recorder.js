@@ -71,6 +71,7 @@ export function createRecorder({
   let cleaning = false;
   let stopResolve = null;
   let arming = null;
+  let hold = null;
   const trackCleanups = [];
 
   function finishArming(value) {
@@ -81,6 +82,31 @@ export function createRecorder({
     current.recorder.removeEventListener('start', current.onStart);
     current.recorder.removeEventListener('error', current.onError);
     current.resolve(value);
+  }
+
+  function finishHold() {
+    const current = hold;
+    if (!current) return;
+    hold = null;
+    clearTimeout(current.timer);
+    current.resolve();
+  }
+
+  function waitForHold(notBefore) {
+    const remaining = (Number(notBefore) || 0) - performance.now();
+    if (!(remaining > 0) || cancelRequested || state !== 'starting') {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      hold = {
+        resolve,
+        timer: setTimeout(() => {
+          hold = null;
+          resolve();
+        }, remaining),
+      };
+      if (cancelRequested || state !== 'starting') finishHold();
+    });
   }
 
   function waitForCapture(recorder) {
@@ -147,6 +173,7 @@ export function createRecorder({
   function cleanup() {
     if (cleaning) return;
     cleaning = true;
+    finishHold();
     finishArming('cancelled');
     const resolvePending = stopResolve;
     stopResolve = null;
@@ -233,7 +260,7 @@ export function createRecorder({
     }, Math.max(0, maxSeconds) * 1000);
   }
 
-  async function begin() {
+  async function begin(options = {}) {
     try {
       setAudioSessionType('play-and-record');
       if (!canCapture()) {
@@ -291,6 +318,15 @@ export function createRecorder({
         state = 'idle';
         return { cancelled: true };
       }
+      const holdMs = (Number(options.notBefore) || 0) - performance.now();
+      if (holdMs > 0) {
+        await waitForHold(options.notBefore);
+        if (cancelRequested || state !== 'starting') {
+          cleanup();
+          state = 'idle';
+          return { cancelled: true };
+        }
+      }
       const pendingCapture = waitForCapture(mediaRecorder);
       try {
         mediaRecorder.start();
@@ -326,20 +362,21 @@ export function createRecorder({
     }
   }
 
-  function start() {
+  function start(options = {}) {
     if (state !== 'idle') {
       return Promise.reject(errorWithKind('Recorder is busy', 'busy'));
     }
     state = 'starting';
     cancelRequested = false;
     chunks = [];
-    startPromise = begin();
+    startPromise = begin(options);
     return startPromise;
   }
 
   function stop() {
     if (state === 'starting') {
       cancelRequested = true;
+      finishHold();
       finishArming('cancelled');
       const pending = startPromise || Promise.resolve();
       return pending.then(() => emptyResult(), () => emptyResult());
@@ -387,6 +424,7 @@ export function createRecorder({
   function cancel() {
     if (state === 'starting') {
       cancelRequested = true;
+      finishHold();
       finishArming('cancelled');
       return;
     }

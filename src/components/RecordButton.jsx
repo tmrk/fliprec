@@ -104,6 +104,7 @@ const RecordButton = memo(function RecordButton() {
       type="button"
       className={className}
       {...pressHandlers}
+      data-sfx="off"
       onClick={onClick}
       disabled={phase === 'processing'}
       aria-disabled={requesting ? 'true' : undefined}

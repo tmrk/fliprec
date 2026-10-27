@@ -41,7 +41,7 @@ const ErrorCard = memo(function ErrorCard({ error }) {
     <div className="fr-error" role="alert">
       <h2 className="fr-error__title">{copy.title}</h2>
       <p className="fr-error__body">{copy.body}</p>
-      <button type="button" className="fr-error__btn fr-press fr-press--fill" {...pressHandlers} onClick={onRetry}>
+      <button type="button" className="fr-error__btn fr-press fr-press--fill" {...pressHandlers} data-sfx="off" onClick={onRetry}>
         Try again
       </button>
     </div>

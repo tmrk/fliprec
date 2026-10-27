@@ -122,12 +122,18 @@ vi.mock('../../src/lib/haptics.js', () => ({
   tap: vi.fn(),
 }));
 
+vi.mock('../../src/audio/sfx.js', () => ({
+  playSfx: vi.fn(() => 0),
+  setSfxEnabled: vi.fn(),
+}));
+
 import { decodeToBuffer, resampleIfNeeded } from '../../src/audio/decode.js';
 import { encodeM4A } from '../../src/audio/m4a.js';
 import { getContext, unlock } from '../../src/audio/context.js';
 import { clear as clearPersisted, load as loadPersisted, save as savePersisted } from '../../src/audio/persist.js';
 import { grant, revoke, track } from '../../src/lib/analytics.js';
 import { tap } from '../../src/lib/haptics.js';
+import { playSfx, setSfxEnabled } from '../../src/audio/sfx.js';
 import { canShareFiles, downloadBlob, shareFiles } from '../../src/lib/share.js';
 import { TRANSPORT_EVENT, controller, setPreviewModel } from '../../src/engine/controller.js';
 import { store } from '../../src/engine/store.js';
@@ -242,6 +248,9 @@ describe('controller', () => {
     grant.mockClear();
     revoke.mockClear();
     tap.mockClear();
+    playSfx.mockReset();
+    playSfx.mockReturnValue(0);
+    setSfxEnabled.mockClear();
   });
 
   afterEach(() => {
@@ -721,6 +730,118 @@ describe('controller', () => {
     expect(store.getState().theme).toBe('light');
     expect(document.documentElement.dataset.theme).toBe('light');
     expect(localStorage.getItem('fliprec:theme')).toBe('light');
+  });
+
+  it('plays a cue for each transport and stays silent on ignored taps', async () => {
+    playSfx.mockClear();
+    controller.togglePlay('forward');
+    expect(playSfx).not.toHaveBeenCalled();
+
+    setPreviewModel({
+      getLevel: () => 0,
+      getElapsed: () => 0,
+      getPosition: () => 0,
+      getDuration: () => 1,
+      getPeaks: () => [],
+    });
+    controller.togglePlay('reverse');
+    expect(playSfx).not.toHaveBeenCalled();
+    setPreviewModel(null);
+
+    await recordClip();
+    playSfx.mockClear();
+    controller.togglePlay('forward');
+    controller.togglePlay('forward');
+    controller.togglePlay('forward');
+    controller.togglePlay('reverse');
+    expect(playSfx.mock.calls.map((call) => call[0])).toEqual(['play', 'pause', 'play', 'reverse']);
+  });
+
+  it('passes the start cue end as notBefore and plays stop only after recorder.stop resolves', async () => {
+    playSfx.mockReturnValue(4321);
+    controller.toggleRecord();
+    expect(playSfx).toHaveBeenCalledWith('start');
+    expect(recorder.start).toHaveBeenCalledWith({ notBefore: 4321 });
+    await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+
+    let releaseStop;
+    recorder.stop.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseStop = resolve;
+    }));
+    playSfx.mockClear();
+    decodeToBuffer.mockClear();
+    controller.toggleRecord();
+    expect(store.getState().phase).toBe('processing');
+    await flush();
+    expect(playSfx).not.toHaveBeenCalled();
+    expect(decodeToBuffer).not.toHaveBeenCalled();
+    releaseStop({
+      blob: new Blob(['abc'], { type: 'audio/webm' }),
+      mimeType: 'audio/webm',
+      elapsed: 1,
+    });
+    await vi.waitFor(() => expect(store.getState().phase).toBe('ready'));
+    expect(playSfx.mock.calls.map((call) => call[0])).toEqual(['stop']);
+    expect(playSfx.mock.invocationCallOrder[0]).toBeLessThan(decodeToBuffer.mock.invocationCallOrder[0]);
+  });
+
+  it('plays error on start failure, empty takes, and import failure, never on top of the stop cue', async () => {
+    recorder.start.mockRejectedValueOnce(Object.assign(new Error('denied'), { kind: 'mic-denied' }));
+    playSfx.mockClear();
+    controller.toggleRecord();
+    await vi.waitFor(() => expect(store.getState().error?.kind).toBe('mic-denied'));
+    expect(playSfx.mock.calls.map((call) => call[0])).toEqual(['start', 'error']);
+
+    recorder.start.mockRejectedValueOnce(Object.assign(new Error('busy'), { kind: 'busy' }));
+    playSfx.mockClear();
+    controller.toggleRecord();
+    await vi.waitFor(() => expect(store.getState().phase).toBe('empty'));
+    expect(playSfx.mock.calls.map((call) => call[0])).toEqual(['start']);
+    expect(store.getState().error).toBeNull();
+
+    recorder.start.mockResolvedValue(undefined);
+    await recordClip();
+    playSfx.mockClear();
+    recorder.stop.mockResolvedValueOnce({ blob: new Blob([]), mimeType: '', elapsed: 0 });
+    controller.toggleRecord();
+    await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+    controller.toggleRecord();
+    await vi.waitFor(() => expect(store.getState().toast?.message).toBe('Nothing was recorded. Try again.'));
+    expect(playSfx.mock.calls.map((call) => call[0])).toEqual(['start', 'error']);
+
+    controller.dismissToast();
+    playSfx.mockClear();
+    decodeToBuffer.mockRejectedValueOnce(new Error('decode'));
+    controller.toggleRecord();
+    await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+    controller.toggleRecord();
+    await vi.waitFor(() => expect(store.getState().toast?.message).toBe("Couldn't process the recording"));
+    expect(playSfx.mock.calls.map((call) => call[0])).toEqual(['start', 'stop']);
+
+    controller.dismissToast();
+    playSfx.mockClear();
+    decodeToBuffer.mockRejectedValueOnce(new Error('bad file'));
+    controller.importFile(new File([new Uint8Array(16)], 'clip.wav', { type: 'audio/wav' }));
+    await vi.waitFor(() => {
+      expect(store.getState().toast?.message).toBe("That file couldn't be opened as audio");
+    });
+    expect(playSfx.mock.calls.map((call) => call[0])).toEqual(['error']);
+  });
+
+  it('persists sounds and calls setSfxEnabled', () => {
+    playSfx.mockClear();
+    setSfxEnabled.mockClear();
+    controller.setSounds(false);
+    expect(store.getState().sounds).toBe(false);
+    expect(localStorage.getItem('fliprec:sounds')).toBe('off');
+    expect(setSfxEnabled).toHaveBeenCalledWith(false);
+    expect(playSfx).not.toHaveBeenCalled();
+
+    controller.setSounds(true);
+    expect(store.getState().sounds).toBe(true);
+    expect(localStorage.getItem('fliprec:sounds')).toBe('on');
+    expect(setSfxEnabled).toHaveBeenCalledWith(true);
+    expect(playSfx).toHaveBeenCalledWith('tap');
   });
 
   it('treats a silent buffer and a decode error as failed takes', async () => {

@@ -69,6 +69,7 @@ const PlayTile = memo(function PlayTile({ direction }) {
       type="button"
       className={className}
       {...pressHandlers}
+      data-sfx="off"
       aria-disabled={enabled ? undefined : true}
       aria-pressed={playing}
       aria-label={playing ? `Pause${suffix}` : `Play${suffix}`}

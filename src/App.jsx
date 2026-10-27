@@ -1,11 +1,10 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { applyThemePreference, store } from './engine/store.js';
 import { useStore } from './hooks/useStore.js';
 import ConsentCard from './components/ConsentCard.jsx';
 import ErrorCard from './components/ErrorCard.jsx';
 import Header from './components/Header.jsx';
 import LiveRegion from './components/LiveRegion.jsx';
-import MoreSheet from './components/MoreSheet.jsx';
 import PlayTile from './components/PlayTile.jsx';
 import RecordButton from './components/RecordButton.jsx';
 import StatusLine from './components/StatusLine.jsx';
@@ -13,6 +12,8 @@ import Timer from './components/Timer.jsx';
 import Toast from './components/Toast.jsx';
 import Waveform from './components/Waveform.jsx';
 import './App.css';
+
+const MoreSheet = lazy(() => import('./components/MoreSheet.jsx'));
 
 export default function App() {
   const error = useStore((state) => state.error);
@@ -52,7 +53,9 @@ export default function App() {
       </div>
       <Toast />
       <ConsentCard />
-      <MoreSheet />
+      <Suspense fallback={null}>
+        <MoreSheet />
+      </Suspense>
       <LiveRegion />
     </div>
   );

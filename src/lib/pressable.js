@@ -1,3 +1,5 @@
+import { playSfx } from '../audio/sfx.js';
+
 const MIN_PRESS_MS = 110;
 const presses = new WeakMap();
 
@@ -39,12 +41,19 @@ function release(event) {
   el.removeAttribute('data-pressed');
 }
 
+function tick(event) {
+  const el = event.currentTarget;
+  if (isDisabled(el) || el.getAttribute('data-sfx') === 'off') return;
+  playSfx('tap');
+}
+
 export const pressHandlers = {
   onPointerDown: press,
   onPointerUp: release,
   onPointerCancel: release,
   onPointerLeave: release,
   onBlur: release,
+  onClickCapture: tick,
 };
 
 export function usePressable() {

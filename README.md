@@ -26,12 +26,12 @@ Everything happens in your browser. Nothing you record is uploaded.
    to two minutes long.
 3. Tap Play or Reverse to listen, and tap again to pause. Drag across the waveform to jump to
    another point.
-4. Tap Share reversed to send the backwards version through your phone's share sheet, for example
-   to WhatsApp or Messages.
+4. Tap the Share button at the top to send the backwards version through your phone's share
+   sheet, for example to WhatsApp or Messages.
 
 The More button (three dots) has everything else. You can share or save the original, save either
-version as an M4A or WAV file, open an audio file from your device, start a new recording, and
-switch between light and dark mode.
+version as an M4A or WAV file, open an audio file from your device, start a new recording, switch
+between light and dark mode, and turn sounds on or off.
 
 ## Install it on your phone
 

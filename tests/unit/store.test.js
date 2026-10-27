@@ -1,5 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
-import { createStore } from '../../src/engine/store.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  SOUNDS_KEY,
+  createStore,
+  readSoundsPreference,
+  writeSoundsPreference,
+} from '../../src/engine/store.js';
 
 describe('createStore', () => {
   it('shallow-merges partial updates and keeps untouched keys', () => {
@@ -49,3 +54,40 @@ describe('createStore', () => {
     expect(store.getState().a).toBe(3);
   });
 });
+
+describe('sounds preference', () => {
+  afterEach(() => {
+    localStorage.removeItem(SOUNDS_KEY);
+    vi.restoreAllMocks();
+  });
+
+  it('treats only stored off as disabled', () => {
+    localStorage.removeItem(SOUNDS_KEY);
+    expect(readSoundsPreference()).toBe(true);
+    localStorage.setItem(SOUNDS_KEY, 'on');
+    expect(readSoundsPreference()).toBe(true);
+    localStorage.setItem(SOUNDS_KEY, 'nope');
+    expect(readSoundsPreference()).toBe(true);
+    localStorage.setItem(SOUNDS_KEY, 'off');
+    expect(readSoundsPreference()).toBe(false);
+  });
+
+  it('treats storage errors as on and does not throw when writing', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    expect(readSoundsPreference()).toBe(true);
+    expect(() => writeSoundsPreference(false)).not.toThrow();
+  });
+
+  it('persists on and off', () => {
+    writeSoundsPreference(true);
+    expect(localStorage.getItem(SOUNDS_KEY)).toBe('on');
+    writeSoundsPreference(false);
+    expect(localStorage.getItem(SOUNDS_KEY)).toBe('off');
+  });
+});
+

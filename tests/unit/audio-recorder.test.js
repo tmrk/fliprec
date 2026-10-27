@@ -388,3 +388,60 @@ describe('createRecorder capture start', () => {
     expect(session.type).toBe('playback');
   });
 });
+
+describe('createRecorder start hold', () => {
+  async function armHold(notBefore) {
+    let resolveMic;
+    userMedia.mediaDevices.getUserMedia.mockImplementation(() => new Promise((resolve) => {
+      resolveMic = resolve;
+    }));
+    const recorder = makeRecorder();
+    const pending = recorder.start({ notBefore });
+    const stream = createFakeStream();
+    resolveMic(stream);
+    await Promise.resolve();
+    await Promise.resolve();
+    return { recorder, pending, stream };
+  }
+
+  it('delays mediaRecorder.start until notBefore', async () => {
+    vi.useFakeTimers();
+    const notBefore = performance.now() + 200;
+    const { recorder, pending, stream } = await armHold(notBefore);
+    expect(media.instances).toHaveLength(1);
+    expect(media.instances[0].state).toBe('inactive');
+    expect(recorder.state).toBe('starting');
+    await vi.advanceTimersByTimeAsync(199);
+    expect(media.instances[0].state).toBe('inactive');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(media.instances[0].state).toBe('recording');
+    await pending;
+    expect(recorder.state).toBe('recording');
+    expect(stream.getTracks()[0].readyState).toBe('live');
+  });
+
+  it('cancels during the hold, releases the mic, and never starts capture', async () => {
+    vi.useFakeTimers();
+    const { recorder, pending: starting, stream } = await armHold(performance.now() + 500);
+    expect(media.instances).toHaveLength(1);
+    expect(media.instances[0].state).toBe('inactive');
+    const startSpy = vi.spyOn(media.instances[0], 'start');
+    const stopping = recorder.stop();
+    await expect(starting).resolves.toEqual({ cancelled: true });
+    await expect(stopping).resolves.toMatchObject({ mimeType: '', elapsed: 0 });
+    expect(startSpy).not.toHaveBeenCalled();
+    expect(media.instances[0].state).toBe('inactive');
+    expect(stream.getTracks()[0].stop).toHaveBeenCalledTimes(1);
+    expect(stream.getTracks()[0].readyState).toBe('ended');
+    expect(recorder.state).toBe('idle');
+  });
+
+  it('starts immediately when notBefore is in the past', async () => {
+    vi.useFakeTimers();
+    const { recorder, pending } = await armHold(performance.now() - 50);
+    await pending;
+    expect(media.instances[0].state).toBe('recording');
+    expect(recorder.state).toBe('recording');
+  });
+});
+

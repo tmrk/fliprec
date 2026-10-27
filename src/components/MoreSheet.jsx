@@ -7,6 +7,7 @@ import {
   RotateCcw,
   Share,
   Shield,
+  Volume2,
 } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { controller } from '../engine/controller.js';
@@ -54,6 +55,7 @@ function Action({ icon: Icon, label, ariaLabel, onClick, flip, busy }) {
 const MoreSheet = memo(function MoreSheet() {
   const sheetOpen = useStore((state) => state.sheetOpen);
   const theme = useStore((state) => state.theme);
+  const sounds = useStore((state) => state.sounds);
   const consent = useStore((state) => state.consent);
   const analytics = useStore((state) => state.analyticsAvailable);
   const hasRecording = useStore((state) => state.recording != null);
@@ -242,6 +244,21 @@ const MoreSheet = memo(function MoreSheet() {
               ))}
             </div>
           </div>
+
+          <button
+            type="button"
+            className="fr-group__row fr-press"
+            role="switch"
+            aria-checked={sounds}
+            {...pressHandlers}
+            onClick={() => controller.setSounds(!sounds)}
+          >
+            <Volume2 size={22} strokeWidth={2} aria-hidden="true" />
+            <span className="fr-group__label">Sounds</span>
+            <span className="fr-switch" aria-hidden="true">
+              <span className="fr-switch__knob" />
+            </span>
+          </button>
 
           {analytics ? (
             <button
