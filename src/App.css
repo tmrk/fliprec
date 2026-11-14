@@ -85,6 +85,16 @@
   min-width: 0;
 }
 
+/* iOS 26+ home-screen apps blur the content up to ~36pt below the status bar. Drop the header
+   (and the overlays anchored under it) clear of that band; nothing else moves. */
+@media (display-mode: standalone) {
+  @supports (-webkit-touch-callout: none) {
+    .fr-app {
+      --header-drop: 36px;
+    }
+  }
+}
+
 @media (min-width: 700px) {
   .fr-app {
     width: min(440px, 100%);
@@ -99,6 +109,7 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
     column-gap: 24px;
+    --header-drop: 0px;
     --rec-size: 112px;
     --rec-size: clamp(88px, 32dvh, 140px);
   }

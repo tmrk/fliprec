@@ -1,4 +1,6 @@
 .fr-header {
+  position: relative;
+  top: var(--header-drop, 0px);
   height: 48px;
   display: flex;
   align-items: center;
