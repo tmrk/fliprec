@@ -109,6 +109,7 @@ function base(overrides) {
     toast: null,
     sheetOpen: false,
     consent: 'granted',
+    effect: { speed: 1, pitch: 1 },
     ...overrides,
   };
 }
@@ -157,6 +158,25 @@ const scenarios = {
   'playing-forward': readyState({ state: 'playing', direction: 'forward' }, READY_DURATION * 0.35),
   'playing-reverse': readyState({ state: 'playing', direction: 'reverse' }, READY_DURATION * 0.6),
   paused: readyState({ state: 'paused', direction: 'forward' }, READY_DURATION * 0.42),
+  effects: {
+    state: base({
+      phase: 'ready',
+      recording: recordingMeta(READY_DURATION),
+      exports: readyExports,
+      effect: { speed: 2, pitch: 0.5 },
+    }),
+    model: clipModel(0, READY_DURATION / 2),
+  },
+  'effects-playing': {
+    state: base({
+      phase: 'ready',
+      playback: { state: 'playing', direction: 'reverse' },
+      recording: recordingMeta(READY_DURATION),
+      exports: readyExports,
+      effect: { speed: 0.5, pitch: 1 },
+    }),
+    model: clipModel(READY_DURATION * 2 * 0.55, READY_DURATION * 2),
+  },
   encoding: {
     state: base({
       phase: 'ready',
@@ -255,5 +275,5 @@ export function installPreview() {
         : scenario.state.analyticsAvailable,
   });
   setPreviewModel(scenario.model);
-  if (scenario.pressed) holdPressed(['.fr-record', '.fr-tile--reverse']);
+  if (scenario.pressed) holdPressed(['.fr-record', '.fr-tile--reverse', '.fr-fx']);
 }

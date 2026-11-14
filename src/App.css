@@ -71,6 +71,13 @@
   min-width: 0;
 }
 
+.fr-recrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+}
+
 .fr-playrow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

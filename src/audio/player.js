@@ -188,6 +188,28 @@ export function createPlayer(getContext) {
     reverse = nextReverse || null;
   }
 
+  /**
+   * Swap in new buffers (same take, new speed or pitch) while keeping the transport:
+   * state, direction and the relative position all carry over.
+   */
+  function replace(nextForward, nextReverse) {
+    if (disposed) return;
+    if (!nextForward && !nextReverse) {
+      unload();
+      return;
+    }
+    const oldDuration = durationOf(direction);
+    const fraction = oldDuration > 0 ? clamp(getPosition() / oldDuration, 0, 1) : 0;
+    forward = nextForward || null;
+    reverse = nextReverse || null;
+    const offset = fraction * durationOf(direction);
+    if (state === 'playing') {
+      play(direction, offset);
+      return;
+    }
+    if (state === 'paused') anchorOffset = clamp(offset, 0, durationOf(direction));
+  }
+
   function unload() {
     stop();
     forward = null;
@@ -212,6 +234,7 @@ export function createPlayer(getContext) {
 
   return {
     load,
+    replace,
     unload,
     play,
     pause,

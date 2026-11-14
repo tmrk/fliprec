@@ -7,6 +7,8 @@ const hooks = vi.hoisted(() => {
     playerCb: null,
     interrupt: null,
     recorderOptions: null,
+    renders: [],
+    autoRender: true,
   };
 
   api.emit = () => {
@@ -26,6 +28,7 @@ const hooks = vi.hoisted(() => {
 
   api.player = {
     load: vi.fn(),
+    replace: vi.fn(),
     play: vi.fn((direction, offset) => {
       api.playerState.state = 'playing';
       api.playerState.direction = direction;
@@ -70,6 +73,25 @@ vi.mock('../../src/audio/recorder.js', () => ({
     return hooks.recorder;
   }),
 }));
+
+vi.mock('../../src/audio/effects.js', async () => {
+  const { renderEffect } = await vi.importActual('../../src/audio/fx.js');
+  return {
+    renderEffectInWorker: vi.fn(({ channels, sampleRate, effect, signal }) => new Promise((resolve, reject) => {
+      const entry = {
+        channels,
+        sampleRate,
+        effect,
+        signal,
+        resolve: () => resolve(renderEffect(channels, sampleRate, effect)),
+        reject,
+      };
+      hooks.renders.push(entry);
+      signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      if (hooks.autoRender) entry.resolve();
+    })),
+  };
+});
 
 vi.mock('../../src/audio/player.js', () => ({
   createPlayer: vi.fn(() => hooks.player),
@@ -129,6 +151,7 @@ vi.mock('../../src/audio/sfx.js', () => ({
 
 import { decodeToBuffer, resampleIfNeeded } from '../../src/audio/decode.js';
 import { encodeM4A } from '../../src/audio/m4a.js';
+import { renderEffectInWorker } from '../../src/audio/effects.js';
 import { getContext, unlock } from '../../src/audio/context.js';
 import { clear as clearPersisted, load as loadPersisted, save as savePersisted } from '../../src/audio/persist.js';
 import { grant, revoke, track } from '../../src/lib/analytics.js';
@@ -214,7 +237,12 @@ describe('controller', () => {
     });
 
     player.load.mockClear();
+    player.replace.mockClear();
     player.play.mockClear();
+    store.setState({ effect: { speed: 1, pitch: 1 } });
+    hooks.renders = [];
+    hooks.autoRender = true;
+    renderEffectInWorker.mockClear();
     player.pause.mockClear();
     player.resume.mockClear();
     player.seek.mockClear();
@@ -877,5 +905,167 @@ describe('controller', () => {
     expect(store.getState().recording).toBe(recording);
     expect(store.getState().toast).toBeNull();
     expect(store.getState().error).toBeNull();
+  });
+  describe('speed and pitch', () => {
+    function heard() {
+      const call = player.replace.mock.calls.at(-1) ?? player.load.mock.calls.at(-1);
+      return { forward: call[0], reverse: call[1] };
+    }
+
+    function expectExactReversal(forward, reverse) {
+      const a = forward.getChannelData(0);
+      const b = reverse.getChannelData(0);
+      expect(b.length).toBe(a.length);
+      for (let i = 0; i < a.length; i += 97) expect(b[a.length - 1 - i]).toBe(a[i]);
+    }
+
+    it('ignores taps until a take is ready and keeps preview out of the engine', async () => {
+      controller.cycleEffect('speed');
+      expect(store.getState().effect).toEqual({ speed: 1, pitch: 1 });
+
+      setPreviewModel({ getDuration: () => 1 });
+      controller.cycleEffect('pitch');
+      expect(store.getState().effect).toEqual({ speed: 1, pitch: 2 });
+      setPreviewModel(null);
+      expect(renderEffectInWorker).not.toHaveBeenCalled();
+      expect(player.replace).not.toHaveBeenCalled();
+    });
+
+    it('never renders on the neutral path and exports the original take', async () => {
+      await recordClip();
+      await waitExports();
+      expect(renderEffectInWorker).not.toHaveBeenCalled();
+      expect(encodeM4A).toHaveBeenCalledTimes(2);
+      expect(encodeM4A.mock.calls.every(([arg]) => arg.channels[0].length === 8000)).toBe(true);
+      expect(controller.getDuration()).toBeCloseTo(1, 6);
+    });
+
+    it('cycles 1, 2, 1/2, 1 and renders from the original take', async () => {
+      await recordClip();
+      await waitExports();
+      const [originalForward, originalReverse] = player.load.mock.calls.at(-1);
+
+      controller.cycleEffect('speed');
+      expect(store.getState().effect).toEqual({ speed: 2, pitch: 1 });
+      expect(track).toHaveBeenCalledWith('effect_changed', { speed: 2, pitch: 1 });
+      expect(store.getState().exports.reversed.status).toBe('encoding');
+      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
+      const input = renderEffectInWorker.mock.calls[0][0];
+      expect(input.channels[0]).not.toBe(originalForward.getChannelData(0));
+      expect(input.channels[0][4000]).toBe(originalForward.getChannelData(0)[4000]);
+      let { forward, reverse } = heard();
+      expect(Math.abs(forward.length - 4000)).toBeLessThanOrEqual(1);
+      expectExactReversal(forward, reverse);
+      expect(controller.getDuration()).toBeCloseTo(forward.length / 8000, 6);
+
+      controller.cycleEffect('speed');
+      expect(store.getState().effect).toEqual({ speed: 0.5, pitch: 1 });
+      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(2));
+      ({ forward, reverse } = heard());
+      expect(forward.length).toBe(16000);
+      expectExactReversal(forward, reverse);
+
+      controller.cycleEffect('speed');
+      expect(store.getState().effect).toEqual({ speed: 1, pitch: 1 });
+      expect(player.replace).toHaveBeenCalledTimes(3);
+      expect(player.replace.mock.calls[2][0]).toBe(originalForward);
+      expect(player.replace.mock.calls[2][1]).toBe(originalReverse);
+      expect(renderEffectInWorker).toHaveBeenCalledTimes(2);
+      expect(controller.getDuration()).toBeCloseTo(1, 6);
+    });
+
+    it('drops a superseded render and rebuilds exports once, from the latest sound', async () => {
+      await recordClip();
+      await waitExports();
+      encodeM4A.mockClear();
+      hooks.autoRender = false;
+
+      controller.cycleEffect('speed');
+      await vi.waitFor(() => expect(hooks.renders).toHaveLength(1));
+      controller.cycleEffect('pitch');
+      await vi.waitFor(() => expect(hooks.renders).toHaveLength(2));
+      expect(hooks.renders[0].signal.aborted).toBe(true);
+      expect(hooks.renders[1].effect).toEqual({ speed: 2, pitch: 2 });
+      hooks.renders[0].resolve();
+      hooks.renders[1].resolve();
+
+      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
+      await waitExports();
+      expect(encodeM4A).toHaveBeenCalledTimes(2);
+      const lengths = encodeM4A.mock.calls.map(([arg]) => arg.channels[0].length);
+      expect(lengths.every((length) => Math.abs(length - 4000) <= 2)).toBe(true);
+    });
+
+    it('waits 400 ms after the last change before encoding', async () => {
+      await recordClip();
+      await waitExports();
+      encodeM4A.mockClear();
+      controller.cycleEffect('pitch');
+      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
+      const landed = performance.now();
+      await vi.waitFor(() => expect(encodeM4A).toHaveBeenCalled(), { timeout: 2000 });
+      expect(performance.now() - landed).toBeGreaterThanOrEqual(350);
+      await waitExports();
+    });
+
+    it('falls back to the normal sound and toasts when a render fails', async () => {
+      await recordClip();
+      await waitExports();
+      const [originalForward] = player.load.mock.calls.at(-1);
+      hooks.autoRender = false;
+      controller.cycleEffect('speed');
+      await vi.waitFor(() => expect(hooks.renders).toHaveLength(1));
+      hooks.renders[0].reject(new Error('worker died'));
+
+      await vi.waitFor(() => expect(store.getState().toast?.message).toBe("Couldn't change the sound"));
+      expect(store.getState().effect).toEqual({ speed: 1, pitch: 1 });
+      expect(player.replace.mock.calls.at(-1)[0]).toBe(originalForward);
+      await waitExports();
+    });
+
+    it('renders a new take before it becomes ready when an effect is on', async () => {
+      await recordClip();
+      controller.cycleEffect('speed');
+      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
+      await waitExports();
+      encodeM4A.mockClear();
+      hooks.autoRender = false;
+
+      controller.toggleRecord();
+      await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+      controller.toggleRecord();
+      await vi.waitFor(() => expect(hooks.renders).toHaveLength(2));
+      expect(store.getState().phase).toBe('processing');
+      expect(encodeM4A).not.toHaveBeenCalled();
+      hooks.renders[1].resolve();
+
+      await vi.waitFor(() => expect(store.getState().phase).toBe('ready'));
+      const [forward, reverse] = player.load.mock.calls.at(-1);
+      expect(Math.abs(forward.length - 4000)).toBeLessThanOrEqual(1);
+      expectExactReversal(forward, reverse);
+      await waitExports();
+      expect(encodeM4A.mock.calls.every(([arg]) => Math.abs(arg.channels[0].length - 4000) <= 1)).toBe(true);
+    });
+
+    it('keeps the effect sound and its files through clear and undo', async () => {
+      await recordClip();
+      controller.cycleEffect('speed');
+      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
+      await waitExports();
+      controller.share('reversed');
+      const file = shareFiles.mock.calls[0][0];
+      const { forward } = heard();
+
+      controller.clearRecording();
+      expect(controller.getDuration()).toBe(0);
+      shareFiles.mockClear();
+      store.getState().toast.action();
+
+      expect(store.getState().phase).toBe('ready');
+      expect(player.load.mock.calls.at(-1)[0]).toBe(forward);
+      expect(controller.getDuration()).toBeCloseTo(forward.length / 8000, 6);
+      controller.share('reversed');
+      expect(shareFiles.mock.calls[0][0]).toBe(file);
+    });
   });
 });

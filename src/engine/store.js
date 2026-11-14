@@ -102,6 +102,7 @@ function createInitialState() {
     consent: getConsent(),
     analyticsAvailable: analyticsAvailable(),
     sheetOpen: false,
+    effect: { speed: 1, pitch: 1 },
   };
 }
 

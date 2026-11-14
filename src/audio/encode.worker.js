@@ -2,9 +2,15 @@ import { encodeM4a } from './encodeM4a.js';
 
 /** Sequential so one encode finishes before the next starts. */
 let tail = Promise.resolve();
+/** Ids aborted by the page while still queued; they are skipped when their turn comes. */
+const cancelled = new Set();
 
 self.onmessage = (event) => {
   const message = event.data;
+  if (message && message.cancel !== undefined) {
+    cancelled.add(message.cancel);
+    return;
+  }
   tail = tail.then(() => handle(message)).catch(() => {});
 };
 
@@ -13,6 +19,10 @@ self.onmessage = (event) => {
  */
 async function handle(message) {
   const id = message?.id;
+  if (cancelled.delete(id)) {
+    self.postMessage({ id, ok: false, error: 'cancelled' });
+    return;
+  }
   try {
     const channels = message.channels;
     const sampleRate = message.sampleRate;

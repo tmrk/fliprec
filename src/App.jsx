@@ -3,6 +3,7 @@ import { applyThemePreference, store } from './engine/store.js';
 import { useStore } from './hooks/useStore.js';
 import ConsentCard from './components/ConsentCard.jsx';
 import ErrorCard from './components/ErrorCard.jsx';
+import FxButton from './components/FxButton.jsx';
 import Header from './components/Header.jsx';
 import LiveRegion from './components/LiveRegion.jsx';
 import PlayTile from './components/PlayTile.jsx';
@@ -45,7 +46,11 @@ export default function App() {
         </main>
       </div>
       <div className="fr-controls">
-        <RecordButton />
+        <div className="fr-recrow">
+          <FxButton kind="speed" />
+          <RecordButton />
+          <FxButton kind="pitch" />
+        </div>
         <div className="fr-playrow">
           <PlayTile direction="forward" />
           <PlayTile direction="reverse" />

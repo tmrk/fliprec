@@ -6,6 +6,7 @@ import {
   resampleIfNeeded,
   validateRecording,
 } from '../audio/decode.js';
+import { isNeutralEffect, NEUTRAL_EFFECT, nextStep, normalizeEffect } from '../audio/effect.js';
 import { encodeM4A, m4aFile } from '../audio/m4a.js';
 import { computePeaks } from '../audio/peaks.js';
 import { createPlayer } from '../audio/player.js';
@@ -29,6 +30,8 @@ const IMPORT_LIMIT_SECONDS = 300;
 const IMPORT_LIMIT_BYTES = 200 * 1024 * 1024;
 const EMPTY_PEAKS = [];
 const START_ERRORS = ['mic-denied', 'mic-missing', 'unsupported', 'record-failed'];
+// Quiet period after the last Speed or Pitch tap before exports are rebuilt.
+const EFFECT_EXPORT_DELAY_MS = 400;
 
 let preview = null;
 let phase = 'empty';
@@ -42,7 +45,14 @@ let persistTail = Promise.resolve();
 // Frozen take length shown by the timer while a stopped recording is decoded.
 let processingElapsed = 0;
 
+// `buffers` is the take as recorded. `active` is what is heard, timed, sought and exported:
+// the very same objects when the effect is neutral, else the take with speed and pitch applied.
 const buffers = { forward: null, reverse: null };
+const active = { forward: null, reverse: null };
+let activeEffect = NEUTRAL_EFFECT;
+let effectRun = 0;
+let effectAbort = null;
+let effectExportTimer = 0;
 const peaks = { forward: null, reverse: null };
 const files = { reversed: null, original: null };
 let sourceBlob = null;
@@ -301,7 +311,7 @@ async function consumeStop(id) {
       return;
     }
     if (id !== sessionId) return;
-    const adopted = adopt({
+    const adopted = await adopt({
       id,
       buffer,
       sourceBlob: result.blob,
@@ -315,7 +325,127 @@ async function consumeStop(id) {
   }
 }
 
-function adopt(input) {
+function sameEffect(a, b) {
+  const x = normalizeEffect(a);
+  const y = normalizeEffect(b);
+  return x.speed === y.speed && x.pitch === y.pitch;
+}
+
+function toAudioBuffer(ctx, channels, sampleRate) {
+  const length = channels.length ? channels[0].length : 0;
+  const buffer = ctx.createBuffer(channels.length || 1, Math.max(1, length), sampleRate);
+  for (let i = 0; i < channels.length; i += 1) buffer.copyToChannel(channels[i], i);
+  return buffer;
+}
+
+/** Render `source` with `effect` off the main thread; resolves `{ forward, reverse }`. */
+async function renderActive(source, effect, signal) {
+  const { renderEffectInWorker } = await import('../audio/effects.js');
+  const channels = await renderEffectInWorker({
+    channels: copyChannels(source),
+    sampleRate: source.sampleRate,
+    effect,
+    signal,
+  });
+  if (signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
+  const ctx = getContext();
+  const forward = toAudioBuffer(ctx, channels, source.sampleRate);
+  return { forward, reverse: reverseAudioBuffer(ctx, forward) };
+}
+
+function clearEffectExportTimer() {
+  if (effectExportTimer) clearTimeout(effectExportTimer);
+  effectExportTimer = 0;
+}
+
+/** Drop any in-flight render and pending export rebuild. */
+function cancelEffectWork() {
+  effectRun += 1;
+  if (effectAbort) effectAbort.abort();
+  effectAbort = null;
+  clearEffectExportTimer();
+}
+
+function invalidateExports() {
+  if (exportAbort) exportAbort.abort();
+  exportAbort = null;
+  files.reversed = null;
+  files.original = null;
+  store.setState({
+    exports: {
+      reversed: { status: 'encoding' },
+      original: { status: 'encoding' },
+    },
+  });
+}
+
+function scheduleEffectExports() {
+  clearEffectExportTimer();
+  effectExportTimer = setTimeout(() => {
+    effectExportTimer = 0;
+    // A recording in progress rebuilds exports itself when it ends or fails.
+    if (phase !== 'ready' || !active.forward) return;
+    void runExports(sessionId);
+  }, EFFECT_EXPORT_DELAY_MS);
+}
+
+function setActive(forward, reverse, effect) {
+  active.forward = forward;
+  active.reverse = reverse;
+  activeEffect = normalizeEffect(effect);
+  try { player.replace(forward, reverse); } catch { /* context unavailable */ }
+  notifyTransport();
+}
+
+function applyEffect() {
+  cancelEffectWork();
+  const run = effectRun;
+  const effect = normalizeEffect(store.getState().effect);
+  invalidateExports();
+  if (isNeutralEffect(effect)) {
+    setActive(buffers.forward, buffers.reverse, NEUTRAL_EFFECT);
+    scheduleEffectExports();
+    return;
+  }
+  const abort = new AbortController();
+  effectAbort = abort;
+  renderActive(buffers.forward, effect, abort.signal).then((next) => {
+    if (run !== effectRun) return;
+    effectAbort = null;
+    setActive(next.forward, next.reverse, effect);
+    invalidateExports();
+    scheduleEffectExports();
+  }, (error) => {
+    if (run !== effectRun) return;
+    effectAbort = null;
+    if (error && error.name === 'AbortError') return;
+    store.setState({ effect: { ...NEUTRAL_EFFECT } });
+    setActive(buffers.forward, buffers.reverse, NEUTRAL_EFFECT);
+    invalidateExports();
+    showToast("Couldn't change the sound");
+    scheduleEffectExports();
+  });
+}
+
+function cycleEffect(kind) {
+  const key = kind === 'pitch' ? 'pitch' : 'speed';
+  const current = normalizeEffect(store.getState().effect);
+  const next = { ...current, [key]: nextStep(current[key]) };
+  if (preview) {
+    store.setState({ effect: next });
+    return;
+  }
+  if (phase !== 'ready' || !buffers.forward) return;
+  store.setState({ effect: next });
+  track('effect_changed', { speed: next.speed, pitch: next.pitch });
+  applyEffect();
+}
+
+/**
+ * Make a decoded take current. With an effect on, the take is rendered first so it is never
+ * heard without it; phase stays `processing` meanwhile. Resolves false when superseded.
+ */
+async function adopt(input) {
   if (input.id !== sessionId) return false;
   const ctx = getContext();
   const forward = input.buffer;
@@ -324,16 +454,41 @@ function adopt(input) {
     forward: computePeaks(readChannels(forward), PEAK_BUCKETS),
     reverse: computePeaks(readChannels(reverse), PEAK_BUCKETS),
   };
+  let effect = normalizeEffect(store.getState().effect);
+  let heard = { forward, reverse };
+  if (!isNeutralEffect(effect)) {
+    cancelEffectWork();
+    const run = effectRun;
+    const abort = new AbortController();
+    effectAbort = abort;
+    try {
+      heard = await renderActive(forward, effect, abort.signal);
+    } catch (error) {
+      if (run !== effectRun || input.id !== sessionId) return false;
+      if (error && error.name === 'AbortError') return false;
+      effect = NEUTRAL_EFFECT;
+      heard = { forward, reverse };
+      store.setState({ effect: { ...NEUTRAL_EFFECT } });
+      showToast("Couldn't change the sound");
+    }
+    if (run !== effectRun || input.id !== sessionId) return false;
+    effectAbort = null;
+  }
+  if (input.id !== sessionId) return false;
+  cancelEffectWork();
   if (exportAbort) exportAbort.abort();
   buffers.forward = forward;
   buffers.reverse = reverse;
+  active.forward = heard.forward;
+  active.reverse = heard.reverse;
+  activeEffect = effect;
   peaks.forward = nextPeaks.forward;
   peaks.reverse = nextPeaks.reverse;
   files.reversed = null;
   files.original = null;
   sourceBlob = input.sourceBlob;
   sourceMime = input.mimeType || '';
-  try { player.load(forward, reverse); } catch { /* context unavailable */ }
+  try { player.load(active.forward, active.reverse); } catch { /* context unavailable */ }
   const createdAt = Number.isFinite(input.createdAt) ? input.createdAt : Date.now();
   phase = 'ready';
   store.setState({
@@ -364,7 +519,7 @@ function adopt(input) {
 }
 
 function ensureExports() {
-  if (!buffers.forward || !buffers.reverse || !store.getState().recording) return;
+  if (!active.forward || !active.reverse || !store.getState().recording) return;
   const exp = store.getState().exports;
   const reversedReady = exp.reversed.status === 'ready' && files.reversed;
   const originalReady = exp.original.status === 'ready' && files.original;
@@ -386,13 +541,13 @@ async function runExports(id) {
   const run = ++exportRun;
   exportSession = id;
   if (exportAbort) exportAbort.abort();
-  const active = new AbortController();
-  exportAbort = active;
-  const { signal } = active;
+  const runAbort = new AbortController();
+  exportAbort = runAbort;
+  const { signal } = runAbort;
   const createdAt = store.getState().recording?.createdAt ?? Date.now();
   const jobs = [
-    ['reversed', () => buffers.reverse],
-    ['original', () => buffers.forward],
+    ['reversed', () => active.reverse],
+    ['original', () => active.forward],
   ];
   try {
     for (let i = 0; i < jobs.length; i += 1) {
@@ -472,7 +627,7 @@ function seek(fraction) {
   }
   if (phase === 'ready') {
     try {
-      player.seek(clamped * bufferDuration(buffers.forward));
+      player.seek(clamped * bufferDuration(active.forward));
     } catch {
       /* no buffer */
     }
@@ -526,7 +681,7 @@ function download(variant, format = 'm4a') {
   if (preview) return;
   const key = variantKey(variant);
   if (format === 'wav') {
-    const buffer = key === 'original' ? buffers.forward : buffers.reverse;
+    const buffer = key === 'original' ? active.forward : active.reverse;
     if (!buffer) {
       showToast('Preparing audio...');
       return;
@@ -582,7 +737,7 @@ async function consumeImport(id, file) {
     buffer = downmixToStereo(ctx, buffer);
     if (!validateRecording(buffer).ok) throw new Error('invalid');
     if (id !== sessionId) return;
-    const adopted = adopt({
+    const adopted = await adopt({
       id,
       buffer,
       sourceBlob: file,
@@ -610,12 +765,14 @@ function armUndoWindow() {
 function clearRecording() {
   if (preview) return;
   const recording = store.getState().recording;
-  const active = phase !== 'empty' || recording || buffers.forward || sourceBlob;
-  if (!active) return;
+  const hasTake = phase !== 'empty' || recording || buffers.forward || sourceBlob;
+  if (!hasTake) return;
 
   if (recording) {
     undoBackup = {
       buffers: { forward: buffers.forward, reverse: buffers.reverse },
+      active: { forward: active.forward, reverse: active.reverse },
+      activeEffect,
       peaks: { forward: peaks.forward, reverse: peaks.reverse },
       files: { reversed: files.reversed, original: files.original },
       recording,
@@ -628,12 +785,16 @@ function clearRecording() {
   }
 
   sessionId += 1;
+  cancelEffectWork();
   if (exportAbort) exportAbort.abort();
   exportAbort = null;
   try { recorder.cancel(); } catch { /* already idle */ }
   try { player.stop(); } catch { /* ignore */ }
   buffers.forward = null;
   buffers.reverse = null;
+  active.forward = null;
+  active.reverse = null;
+  activeEffect = NEUTRAL_EFFECT;
   peaks.forward = null;
   peaks.reverse = null;
   files.reversed = null;
@@ -672,15 +833,20 @@ function undoClear() {
   if (!backup?.recording || phase !== 'empty') return;
   buffers.forward = backup.buffers.forward;
   buffers.reverse = backup.buffers.reverse;
+  // The backup holds what was heard at the time; it only still fits if the effect is unchanged.
+  const effectHolds = backup.active?.forward && sameEffect(backup.activeEffect, store.getState().effect);
+  active.forward = effectHolds ? backup.active.forward : buffers.forward;
+  active.reverse = effectHolds ? backup.active.reverse : buffers.reverse;
+  activeEffect = effectHolds ? normalizeEffect(backup.activeEffect) : NEUTRAL_EFFECT;
   peaks.forward = backup.peaks.forward;
   peaks.reverse = backup.peaks.reverse;
-  files.reversed = backup.files.reversed;
-  files.original = backup.files.original;
+  files.reversed = effectHolds ? backup.files.reversed : null;
+  files.original = effectHolds ? backup.files.original : null;
   sourceBlob = backup.sourceBlob;
   sourceMime = backup.sourceMime || '';
-  try { player.load(buffers.forward, buffers.reverse); } catch { /* ignore */ }
+  try { player.load(active.forward, active.reverse); } catch { /* ignore */ }
   phase = 'ready';
-  const exp = backup.exports || {
+  const exp = (effectHolds && backup.exports) || {
     reversed: { status: 'idle' },
     original: { status: 'idle' },
   };
@@ -699,6 +865,10 @@ function undoClear() {
       createdAt: backup.recording.createdAt,
       source: backup.recording.source,
     }));
+  }
+  if (!effectHolds && !isNeutralEffect(store.getState().effect)) {
+    applyEffect();
+    return;
   }
   const reversedReady = exp.reversed?.status === 'ready' && files.reversed;
   const originalReady = exp.original?.status === 'ready' && files.original;
@@ -766,7 +936,7 @@ async function restore() {
     buffer = downmixToStereo(ctx, buffer);
     if (!validateRecording(buffer).ok) return;
     if (seen !== sessionId || phase !== 'empty') return;
-    adopt({
+    await adopt({
       id: seen,
       buffer,
       sourceBlob: record.blob,
@@ -799,7 +969,7 @@ function getPosition() {
 
 function getDuration() {
   if (preview && typeof preview.getDuration === 'function') return preview.getDuration();
-  return bufferDuration(buffers.forward);
+  return bufferDuration(active.forward);
 }
 
 function getPeaks(direction) {
@@ -820,6 +990,7 @@ function getLevelHistory(count) {
 export const controller = {
   toggleRecord,
   togglePlay,
+  cycleEffect,
   seek,
   share,
   download,

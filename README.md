@@ -26,7 +26,10 @@ Everything happens in your browser. Nothing you record is uploaded.
    to two minutes long.
 3. Tap Play or Reverse to listen, and tap again to pause. Drag across the waveform to jump to
    another point.
-4. Tap the Share button at the top to send the backwards version through your phone's share
+4. Tap Speed or Pitch next to the red button to change how it sounds. Each tap switches between
+   1×, 2× and ½×. Speed works like a tape, so faster also sounds higher. Pitch makes the voice
+   higher or lower without changing the length. Sharing and saving use the sound you hear.
+5. Tap the Share button at the top to send the backwards version through your phone's share
    sheet, for example to WhatsApp or Messages.
 
 The More button (three dots) has everything else. You can share or save the original, save either

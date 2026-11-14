@@ -15,21 +15,21 @@ test('keyboard reaches the controls, records, and closes the sheet @chromium', a
   await expect(page.locator('.fr-header__name')).toHaveText('FlipRec');
 
   const order = [];
-  for (let i = 0; i < 5; i += 1) {
+  for (let i = 0; i < 7; i += 1) {
     await page.keyboard.press('Tab');
     order.push(await focusedName(page));
   }
   expect(order).toEqual([
     'Share reversed',
     'More options',
+    'Speed, normal',
     'Start recording',
+    'Pitch, normal',
     'Play',
     'Play reversed',
   ]);
 
-  await page.keyboard.press('Shift+Tab');
-  await page.keyboard.press('Shift+Tab');
-  await page.keyboard.press('Shift+Tab');
+  for (let i = 0; i < 5; i += 1) await page.keyboard.press('Shift+Tab');
   expect(await focusedName(page)).toBe('More options');
   await page.keyboard.press('Enter');
   await expect(page.locator('#fr-more-sheet[open]:not(.fr-sheet--prep)')).toBeVisible();
@@ -37,6 +37,8 @@ test('keyboard reaches the controls, records, and closes the sheet @chromium', a
   await expect(page.locator('#fr-more-sheet')).toBeHidden();
   await expect(page.locator('#fr-more-button')).toBeFocused();
 
+  await page.keyboard.press('Tab');
+  expect(await focusedName(page)).toBe('Speed, normal');
   await page.keyboard.press('Tab');
   expect(await focusedName(page)).toBe('Start recording');
   await page.keyboard.press('Space');

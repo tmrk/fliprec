@@ -192,4 +192,62 @@ describe('createPlayer', () => {
     expect(player.getState().state).toBe('stopped');
     expect(player.getPosition()).toBe(0);
   });
+
+  describe('replace', () => {
+    it('keeps playing from the same relative position in the new buffers', () => {
+      const { ctx, player } = setup(0);
+      const events = [];
+      player.onChange((snapshot) => events.push(snapshot));
+      player.play('forward', 0);
+      ctx.advance(4);
+      const fast = makeClip(ctx, 5, 0.25);
+      const fastReverse = makeClip(ctx, 5, -0.25);
+      events.length = 0;
+      player.replace(fast, fastReverse);
+
+      expect(ctx.sources).toHaveLength(2);
+      expect(ctx.sources[0].stopped).toBe(true);
+      expect(ctx.sources[1].buffer).toBe(fast);
+      expect(ctx.sources[1].offset).toBeCloseTo(2, 6);
+      expect(liveSources(ctx)).toHaveLength(1);
+      expect(player.getState()).toEqual({ state: 'playing', direction: 'forward' });
+      expect(player.getDuration()).toBeCloseTo(5);
+      expect(player.getPosition()).toBeCloseTo(2);
+      expect(events.every((event) => event.state === 'playing')).toBe(true);
+    });
+
+    it('moves a paused position without starting a source', () => {
+      const { ctx, player } = setup(0);
+      player.play('reverse', 0);
+      ctx.advance(3);
+      player.pause();
+      const slow = makeClip(ctx, 20, 0.25);
+      const slowReverse = makeClip(ctx, 20, -0.25);
+      player.replace(slow, slowReverse);
+
+      expect(ctx.sources).toHaveLength(1);
+      expect(player.getState()).toEqual({ state: 'paused', direction: 'reverse' });
+      expect(player.getPosition()).toBeCloseTo(6);
+      player.resume();
+      expect(ctx.sources[1].buffer).toBe(slowReverse);
+      expect(ctx.sources[1].offset).toBeCloseTo(6, 6);
+    });
+
+    it('only swaps buffers while stopped', () => {
+      const { ctx, player } = setup(0);
+      const events = [];
+      player.onChange((snapshot) => events.push(snapshot));
+      const other = makeClip(ctx, 5, 0.1);
+      const otherReverse = makeClip(ctx, 5, -0.1);
+      player.replace(other, otherReverse);
+
+      expect(ctx.sources).toHaveLength(0);
+      expect(events).toHaveLength(0);
+      expect(player.getState().state).toBe('stopped');
+      expect(player.getDuration()).toBeCloseTo(5);
+      player.play('forward');
+      expect(ctx.sources[0].buffer).toBe(other);
+    });
+  });
 });
+

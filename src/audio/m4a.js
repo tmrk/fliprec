@@ -28,6 +28,11 @@ export function encodeM4A({ channels, sampleRate, signal }) {
         signal.removeEventListener('abort', onAbort);
         if (!requests.has(id)) return;
         requests.delete(id);
+        try {
+          worker?.postMessage({ cancel: id });
+        } catch {
+          /* worker already gone */
+        }
         reject(abortReason(signal));
       };
       signal.addEventListener('abort', onAbort, { once: true });

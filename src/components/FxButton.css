@@ -1,0 +1,104 @@
+.fr-fx {
+  justify-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 64px;
+  padding: 4px 4px 2px;
+  border-radius: 20px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fr-fx__dial {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-tile);
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    filter 180ms ease;
+}
+
+.fr-fx__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  color: var(--text-2);
+  transition: color 180ms ease;
+}
+
+.fr-fx--on .fr-fx__dial {
+  background: var(--text);
+  color: var(--bg);
+}
+
+/* The wrapper never takes the generic pressed fill; the dial does. */
+.fr-fx.fr-press[data-pressed],
+.fr-fx.fr-press:active {
+  transform: scale(0.92);
+  background: transparent;
+  box-shadow: none;
+}
+
+.fr-fx.fr-press[data-pressed] .fr-fx__dial,
+.fr-fx.fr-press:active .fr-fx__dial {
+  background: var(--surface-2);
+  box-shadow: var(--shadow-tile-pressed);
+  transition: none;
+}
+
+.fr-fx--on.fr-press[data-pressed] .fr-fx__dial,
+.fr-fx--on.fr-press:active .fr-fx__dial {
+  background: var(--text);
+  filter: brightness(0.92);
+}
+
+.fr-fx[aria-disabled='true'] .fr-fx__dial {
+  box-shadow: none;
+  color: var(--text-3);
+}
+
+.fr-fx[aria-disabled='true'] .fr-fx__label {
+  color: var(--text-3);
+}
+
+.fr-fx[aria-disabled='true'].fr-press[data-pressed],
+.fr-fx[aria-disabled='true'].fr-press:active {
+  transform: none;
+  background: transparent;
+  box-shadow: none;
+  filter: none;
+}
+
+.fr-fx[aria-disabled='true'].fr-press[data-pressed] .fr-fx__dial,
+.fr-fx[aria-disabled='true'].fr-press:active .fr-fx__dial {
+  background: var(--surface);
+  box-shadow: none;
+  filter: none;
+}
+
+/* Still shows that an effect is on while recording or before a take, just dimmed. */
+.fr-fx--on[aria-disabled='true'] .fr-fx__dial,
+.fr-fx--on[aria-disabled='true'].fr-press[data-pressed] .fr-fx__dial,
+.fr-fx--on[aria-disabled='true'].fr-press:active .fr-fx__dial {
+  background: var(--text-3);
+  color: var(--bg);
+}
