@@ -1,9 +1,15 @@
+import { timeoutError, visibleTimeout } from '../lib/deadline.js';
+
 /** @type {Worker | null} */
 let worker = null;
 
+// Generous: the WASM fallback on an older phone still runs well above real time.
+const ENCODE_BASE_MS = 20000;
+const ENCODE_MS_PER_AUDIO_SECOND = 1000;
+
 let nextId = 1;
 
-/** @type {Map<number, { resolve: (value: { buffer: ArrayBuffer, encoder: 'native' | 'wasm' }) => void, reject: (error: Error) => void, signal: AbortSignal | undefined, onAbort: (() => void) | undefined }>} */
+/** @type {Map<number, { resolve: (value: { buffer: ArrayBuffer, encoder: 'native' | 'wasm' }) => void, reject: (error: Error) => void, signal: AbortSignal | undefined, onAbort: (() => void) | undefined, stopWatchdog: () => void }>} */
 const requests = new Map();
 
 /**
@@ -19,6 +25,9 @@ export function encodeM4A({ channels, sampleRate, signal }) {
   const id = nextId;
   nextId += 1;
   const active = getWorker();
+  const frames = channels[0]?.length || 0;
+  const seconds = sampleRate > 0 ? frames / sampleRate : 0;
+  const budget = ENCODE_BASE_MS + seconds * ENCODE_MS_PER_AUDIO_SECOND;
 
   return new Promise((resolve, reject) => {
     /** @type {(() => void) | undefined} */
@@ -26,8 +35,10 @@ export function encodeM4A({ channels, sampleRate, signal }) {
     if (signal) {
       onAbort = () => {
         signal.removeEventListener('abort', onAbort);
-        if (!requests.has(id)) return;
+        const request = requests.get(id);
+        if (!request) return;
         requests.delete(id);
+        request.stopWatchdog();
         try {
           worker?.postMessage({ cancel: id });
         } catch {
@@ -38,7 +49,7 @@ export function encodeM4A({ channels, sampleRate, signal }) {
       signal.addEventListener('abort', onAbort, { once: true });
     }
 
-    requests.set(id, { resolve, reject, signal, onAbort });
+    requests.set(id, { resolve, reject, signal, onAbort, stopWatchdog: () => {} });
     if (signal?.aborted) {
       onAbort();
       return;
@@ -51,6 +62,13 @@ export function encodeM4A({ channels, sampleRate, signal }) {
         { id, channels, sampleRate, forceFallback },
         transfers,
       );
+      const request = requests.get(id);
+      if (request) {
+        request.stopWatchdog = visibleTimeout(
+          () => failAll(timeoutError('M4A encoding timed out')),
+          budget,
+        );
+      }
     } catch (error) {
       requests.delete(id);
       if (signal && onAbort) signal.removeEventListener('abort', onAbort);
@@ -76,6 +94,7 @@ function getWorker() {
   worker = new Worker(new URL('./encode.worker.js', import.meta.url), { type: 'module' });
   worker.addEventListener('message', onMessage);
   worker.addEventListener('error', onWorkerError);
+  worker.addEventListener('messageerror', onWorkerError);
   return worker;
 }
 
@@ -88,6 +107,7 @@ function onMessage(event) {
   if (!pending) return;
 
   requests.delete(id);
+  pending.stopWatchdog();
   if (pending.signal && pending.onAbort) {
     pending.signal.removeEventListener('abort', pending.onAbort);
   }
@@ -101,14 +121,26 @@ function onMessage(event) {
  * @param {ErrorEvent} event
  */
 function onWorkerError(event) {
+  failAll(new Error(event?.message || 'M4A encode worker failed'));
+}
+
+/**
+ * Tear the worker down (it crashed or stopped answering) and reject everything in flight.
+ * @param {Error} error
+ */
+function failAll(error) {
   const failed = worker;
   worker = null;
-  failed?.terminate();
+  try {
+    failed?.terminate();
+  } catch {
+    /* already gone */
+  }
 
-  const error = new Error(event.message || 'M4A encode worker failed');
   const pending = [...requests.values()];
   requests.clear();
   for (const request of pending) {
+    request.stopWatchdog();
     if (request.signal && request.onAbort) {
       request.signal.removeEventListener('abort', request.onAbort);
     }

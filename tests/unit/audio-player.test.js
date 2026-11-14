@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createPlayer } from '../../src/audio/player.js';
 import { createFakeAudioContext } from './helpers/fakeAudio.js';
 
@@ -249,5 +249,60 @@ describe('createPlayer', () => {
       expect(ctx.sources[0].buffer).toBe(other);
     });
   });
-});
 
+  describe('stall watchdog', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('pauses and reports when the clock never moves after a start', () => {
+      vi.useFakeTimers();
+      const ctx = createFakeAudioContext({ sampleRate: 100, currentTime: 5, state: 'running' });
+      const onStall = vi.fn();
+      const player = createPlayer(() => ctx, { onStall });
+      player.load(makeClip(ctx, 10, 0.5), makeClip(ctx, 10, -0.5));
+      player.play('forward', 2);
+      vi.advanceTimersByTime(1000);
+      expect(onStall).toHaveBeenCalledTimes(1);
+      expect(player.getState()).toEqual({ state: 'paused', direction: 'forward' });
+      expect(player.getPosition()).toBeCloseTo(2);
+      expect(liveSources(ctx)).toHaveLength(0);
+    });
+
+    it('stays quiet while the clock advances or after a pause', () => {
+      vi.useFakeTimers();
+      const ctx = createFakeAudioContext({ sampleRate: 100, currentTime: 0, state: 'running' });
+      const onStall = vi.fn();
+      const player = createPlayer(() => ctx, { onStall });
+      player.load(makeClip(ctx, 10, 0.5), makeClip(ctx, 10, -0.5));
+      player.play('forward');
+      ctx.advance(0.9);
+      vi.advanceTimersByTime(1000);
+      expect(player.getState().state).toBe('playing');
+
+      player.play('reverse');
+      player.pause();
+      vi.advanceTimersByTime(1000);
+      expect(onStall).not.toHaveBeenCalled();
+      expect(player.getState().state).toBe('paused');
+    });
+  });
+
+  it('keeps timing against the context a source started on after the shared one changes', () => {
+    const first = createFakeAudioContext({ sampleRate: 100, currentTime: 50, state: 'running' });
+    const second = createFakeAudioContext({ sampleRate: 100, currentTime: 0, state: 'running' });
+    let current = first;
+    const player = createPlayer(() => current);
+    player.load(makeClip(first, 10, 0.5), makeClip(first, 10, -0.5));
+    player.play('forward', 1);
+    first.advance(2);
+    current = second;
+    expect(player.getPosition()).toBeCloseTo(3);
+    player.pause();
+    expect(player.getPosition()).toBeCloseTo(3);
+    expect(first.sources[0].stop).toHaveBeenCalledWith(52 + 0.01);
+    player.resume();
+    expect(second.sources).toHaveLength(1);
+    expect(second.sources[0].start).toHaveBeenCalledWith(0, 3);
+  });
+});

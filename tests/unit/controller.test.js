@@ -94,12 +94,16 @@ vi.mock('../../src/audio/effects.js', async () => {
 });
 
 vi.mock('../../src/audio/player.js', () => ({
-  createPlayer: vi.fn(() => hooks.player),
+  createPlayer: vi.fn((_getContext, options) => {
+    hooks.playerOptions = options;
+    return hooks.player;
+  }),
 }));
 
 vi.mock('../../src/audio/context.js', () => ({
   unlock: vi.fn(),
   getContext: vi.fn(),
+  markContextStalled: vi.fn(),
   onContextInterrupted: vi.fn((cb) => {
     hooks.interrupt = cb;
   }),
@@ -152,7 +156,7 @@ vi.mock('../../src/audio/sfx.js', () => ({
 import { decodeToBuffer, resampleIfNeeded } from '../../src/audio/decode.js';
 import { encodeM4A } from '../../src/audio/m4a.js';
 import { renderEffectInWorker } from '../../src/audio/effects.js';
-import { getContext, unlock } from '../../src/audio/context.js';
+import { getContext, markContextStalled, setAudioSessionType, unlock } from '../../src/audio/context.js';
 import { clear as clearPersisted, load as loadPersisted, save as savePersisted } from '../../src/audio/persist.js';
 import { grant, revoke, track } from '../../src/lib/analytics.js';
 import { tap } from '../../src/lib/haptics.js';
@@ -175,6 +179,11 @@ function makeSilent(ctx, seconds = 1, rate = 8000) {
   return ctx.createBuffer(1, Math.max(1, Math.round(seconds * rate)), rate);
 }
 
+// Poll every few ms: the default 50 ms interval made this file take seconds.
+function waitFor(callback) {
+  return vi.waitFor(callback, { interval: 2, timeout: 2000 });
+}
+
 async function flush() {
   for (let i = 0; i < 12; i += 1) await Promise.resolve();
 }
@@ -189,13 +198,13 @@ function setHidden(value) {
 
 async function recordClip() {
   controller.toggleRecord();
-  await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+  await waitFor(() => expect(store.getState().phase).toBe('recording'));
   controller.toggleRecord();
-  await vi.waitFor(() => expect(store.getState().phase).toBe('ready'));
+  await waitFor(() => expect(store.getState().phase).toBe('ready'));
 }
 
 async function waitExports() {
-  await vi.waitFor(() => {
+  await waitFor(() => {
     const exp = store.getState().exports;
     expect(exp.reversed.status).toBe('ready');
     expect(exp.original.status).toBe('ready');
@@ -294,7 +303,7 @@ describe('controller', () => {
     recorder.start.mockRejectedValueOnce(Object.assign(new Error('denied'), { kind: 'mic-denied' }));
     controller.toggleRecord();
     expect(store.getState().phase).toBe('requesting');
-    await vi.waitFor(() => expect(store.getState().error?.kind).toBe('mic-denied'));
+    await waitFor(() => expect(store.getState().error?.kind).toBe('mic-denied'));
     expect(store.getState().phase).toBe('empty');
     expect(store.getState().recording).toBeNull();
 
@@ -306,29 +315,64 @@ describe('controller', () => {
 
     recorder.start.mockRejectedValueOnce(Object.assign(new Error('denied'), { kind: 'mic-denied' }));
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().error?.kind).toBe('mic-denied'));
+    await waitFor(() => expect(store.getState().error?.kind).toBe('mic-denied'));
     expect(store.getState().phase).toBe('ready');
     expect(store.getState().recording).toBe(recording);
 
     controller.dismissError();
     recorder.stop.mockResolvedValueOnce({ blob: new Blob([]), mimeType: '', elapsed: 0 });
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+    await waitFor(() => expect(store.getState().phase).toBe('recording'));
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().toast?.message).toBe('Nothing was recorded. Try again.'));
+    await waitFor(() => expect(store.getState().toast?.message).toBe('Nothing was recorded. Try again.'));
     expect(store.getState().phase).toBe('ready');
     expect(store.getState().recording).toBe(recording);
+  });
+
+  it('plays on the playback session, swaps a stale context first, and recovers from a stall', async () => {
+    await recordClip();
+    setAudioSessionType.mockClear();
+    controller.togglePlay('forward');
+    expect(setAudioSessionType).toHaveBeenCalledWith('playback');
+    expect(setAudioSessionType.mock.invocationCallOrder.at(-1))
+      .toBeLessThan(unlock.mock.invocationCallOrder.at(-1));
+    expect(unlock.mock.invocationCallOrder.at(-1))
+      .toBeLessThan(player.play.mock.invocationCallOrder.at(-1));
+
+    unlock.mockClear();
+    controller.togglePlay('forward');
+    expect(player.pause).toHaveBeenCalledTimes(1);
+    expect(unlock).not.toHaveBeenCalled();
+
+    hooks.playerOptions.onStall();
+    expect(markContextStalled).toHaveBeenCalled();
+    expect(store.getState().toast?.message).toBe('Audio paused. Tap again to continue.');
+  });
+
+  it('lets a tap cancel a microphone start that hangs past the grace period', async () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    recorder.start.mockImplementation(() => new Promise(() => {}));
+    controller.toggleRecord();
+    expect(store.getState().phase).toBe('requesting');
+    now.mockReturnValue(1500);
+    controller.toggleRecord();
+    expect(recorder.stop).not.toHaveBeenCalled();
+    now.mockReturnValue(2100);
+    controller.toggleRecord();
+    expect(recorder.stop).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(store.getState().phase).toBe('empty'));
+    now.mockRestore();
   });
 
   it('ignores a busy start and maps unknown failures to record-failed', async () => {
     recorder.start.mockRejectedValueOnce(Object.assign(new Error('busy'), { kind: 'busy' }));
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().phase).toBe('empty'));
+    await waitFor(() => expect(store.getState().phase).toBe('empty'));
     expect(store.getState().error).toBeNull();
 
     recorder.start.mockRejectedValueOnce(Object.assign(new Error('odd'), { kind: 'weird' }));
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().error?.kind).toBe('record-failed'));
+    await waitFor(() => expect(store.getState().error?.kind).toBe('record-failed'));
     expect(store.getState().phase).toBe('empty');
   });
 
@@ -355,7 +399,7 @@ describe('controller', () => {
     expect(hooks.recorderOptions.maxSeconds).toBe(120);
     expect(controller.maxSeconds).toBe(120);
     release();
-    await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+    await waitFor(() => expect(store.getState().phase).toBe('recording'));
     expect(track).toHaveBeenCalledWith('recording_started');
     expect(tap).toHaveBeenCalled();
   });
@@ -369,7 +413,7 @@ describe('controller', () => {
     expect(store.getState().phase).toBe('requesting');
 
     setHidden(true);
-    await vi.waitFor(() => expect(store.getState().phase).toBe('empty'));
+    await waitFor(() => expect(store.getState().phase).toBe('empty'));
     expect(store.getState().toast).toBeNull();
     expect(store.getState().error).toBeNull();
 
@@ -496,13 +540,13 @@ describe('controller', () => {
 
     shareFiles.mockRejectedValueOnce(Object.assign(new Error('gesture'), { kind: 'activation' }));
     controller.share('reversed');
-    await vi.waitFor(() => expect(store.getState().toast?.message).toBe('Tap Share again'));
+    await waitFor(() => expect(store.getState().toast?.message).toBe('Tap Share again'));
     expect(downloadBlob).not.toHaveBeenCalled();
 
     controller.dismissToast();
     shareFiles.mockRejectedValueOnce(new Error('nope'));
     controller.share('reversed');
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(store.getState().toast?.message).toBe("Sharing isn't available here, so the file was saved instead");
     });
     expect(downloadBlob).toHaveBeenCalled();
@@ -516,13 +560,23 @@ describe('controller', () => {
     expect(store.getState().toast?.message).toBe("Sharing isn't available here, so the file was saved instead");
   });
 
-  it('toasts when an export fails', async () => {
+  it('toasts when an export fails and builds it again on the next request', async () => {
     encodeM4A.mockRejectedValue(new Error('encode failed'));
     await recordClip();
-    await vi.waitFor(() => expect(store.getState().exports.reversed.status).toBe('error'));
+    await waitFor(() => expect(store.getState().exports.reversed.status).toBe('error'));
+    await waitFor(() => expect(store.getState().exports.original.status).toBe('error'));
+    const calls = encodeM4A.mock.calls.length;
+    encodeM4A.mockImplementation(async () => ({ buffer: new ArrayBuffer(16), encoder: 'native' }));
+
     controller.share('reversed');
-    expect(store.getState().toast?.message).toBe("Couldn't prepare audio");
+    expect(store.getState().toast?.message).toBe("Couldn't prepare audio. Trying again.");
     expect(shareFiles).not.toHaveBeenCalled();
+    expect(store.getState().exports.reversed.status).toBe('encoding');
+    await waitFor(() => expect(store.getState().exports.reversed.status).toBe('ready'));
+    await waitFor(() => expect(store.getState().exports.original.status).toBe('ready'));
+    expect(encodeM4A.mock.calls.length).toBe(calls + 2);
+    controller.share('reversed');
+    await waitFor(() => expect(shareFiles).toHaveBeenCalledTimes(1));
   });
 
   it('restores the recording, peaks, and files after undo', async () => {
@@ -543,7 +597,7 @@ describe('controller', () => {
     expect(store.getState().recording).toBeNull();
     expect(store.getState().toast?.message).toBe('Recording deleted');
     expect(store.getState().toast?.actionLabel).toBe('Undo');
-    await vi.waitFor(() => expect(clearPersisted).toHaveBeenCalled());
+    await waitFor(() => expect(clearPersisted).toHaveBeenCalled());
 
     savePersisted.mockClear();
     shareFiles.mockClear();
@@ -556,7 +610,7 @@ describe('controller', () => {
     expect(store.getState().toast).toBeNull();
     controller.share('reversed');
     expect(shareFiles.mock.calls[0][0]).toBe(file);
-    await vi.waitFor(() => expect(savePersisted).toHaveBeenCalled());
+    await waitFor(() => expect(savePersisted).toHaveBeenCalled());
   });
 
   it('caches peaks, reports level only while recording, and buckets duration', async () => {
@@ -581,7 +635,7 @@ describe('controller', () => {
     }
 
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+    await waitFor(() => expect(store.getState().phase).toBe('recording'));
     expect(controller.getLevel()).toBe(0.42);
     expect(controller.getElapsed()).toBe(3);
     const cached = controller.getPeaks('reverse');
@@ -591,20 +645,20 @@ describe('controller', () => {
 
   it('toasts the limit and an interruption without a second haptic', async () => {
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+    await waitFor(() => expect(store.getState().phase).toBe('recording'));
     expect(tap).toHaveBeenCalledTimes(1);
     hooks.recorderOptions.onAutoStop();
-    await vi.waitFor(() => expect(store.getState().phase).toBe('ready'));
+    await waitFor(() => expect(store.getState().phase).toBe('ready'));
     expect(store.getState().toast?.message).toBe('2-minute limit reached');
     expect(tap).toHaveBeenCalledTimes(1);
 
     controller.dismissToast();
     tap.mockClear();
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+    await waitFor(() => expect(store.getState().phase).toBe('recording'));
     expect(tap).toHaveBeenCalledTimes(1);
     setHidden(true);
-    await vi.waitFor(() => expect(store.getState().phase).toBe('ready'));
+    await waitFor(() => expect(store.getState().phase).toBe('ready'));
     expect(store.getState().toast?.message).toBe('Recording stopped when FlipRec went to the background');
     expect(tap).toHaveBeenCalledTimes(1);
   });
@@ -632,7 +686,7 @@ describe('controller', () => {
     const file = new File([new Uint8Array(16)], 'clip.wav', { type: 'audio/wav' });
     controller.importFile(file);
     expect(store.getState().phase).toBe('processing');
-    await vi.waitFor(() => expect(store.getState().phase).toBe('ready'));
+    await waitFor(() => expect(store.getState().phase).toBe('ready'));
     expect(store.getState().recording.source).toBe('import');
     expect(store.getState().recording.duration).toBeLessThanOrEqual(300);
     expect(store.getState().toast?.message).toBe('Imported the first 5 minutes');
@@ -641,7 +695,7 @@ describe('controller', () => {
     const imported = store.getState().recording;
     decodeToBuffer.mockRejectedValueOnce(new Error('bad file'));
     controller.importFile(file);
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(store.getState().toast?.message).toBe("That file couldn't be opened as audio");
     });
     expect(store.getState().phase).toBe('ready');
@@ -790,7 +844,7 @@ describe('controller', () => {
     controller.toggleRecord();
     expect(playSfx).toHaveBeenCalledWith('start');
     expect(recorder.start).toHaveBeenCalledWith({ notBefore: 4321 });
-    await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+    await waitFor(() => expect(store.getState().phase).toBe('recording'));
 
     let releaseStop;
     recorder.stop.mockImplementationOnce(() => new Promise((resolve) => {
@@ -808,7 +862,7 @@ describe('controller', () => {
       mimeType: 'audio/webm',
       elapsed: 1,
     });
-    await vi.waitFor(() => expect(store.getState().phase).toBe('ready'));
+    await waitFor(() => expect(store.getState().phase).toBe('ready'));
     expect(playSfx.mock.calls.map((call) => call[0])).toEqual(['stop']);
     expect(playSfx.mock.invocationCallOrder[0]).toBeLessThan(decodeToBuffer.mock.invocationCallOrder[0]);
   });
@@ -817,13 +871,13 @@ describe('controller', () => {
     recorder.start.mockRejectedValueOnce(Object.assign(new Error('denied'), { kind: 'mic-denied' }));
     playSfx.mockClear();
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().error?.kind).toBe('mic-denied'));
+    await waitFor(() => expect(store.getState().error?.kind).toBe('mic-denied'));
     expect(playSfx.mock.calls.map((call) => call[0])).toEqual(['start', 'error']);
 
     recorder.start.mockRejectedValueOnce(Object.assign(new Error('busy'), { kind: 'busy' }));
     playSfx.mockClear();
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().phase).toBe('empty'));
+    await waitFor(() => expect(store.getState().phase).toBe('empty'));
     expect(playSfx.mock.calls.map((call) => call[0])).toEqual(['start']);
     expect(store.getState().error).toBeNull();
 
@@ -832,25 +886,25 @@ describe('controller', () => {
     playSfx.mockClear();
     recorder.stop.mockResolvedValueOnce({ blob: new Blob([]), mimeType: '', elapsed: 0 });
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+    await waitFor(() => expect(store.getState().phase).toBe('recording'));
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().toast?.message).toBe('Nothing was recorded. Try again.'));
+    await waitFor(() => expect(store.getState().toast?.message).toBe('Nothing was recorded. Try again.'));
     expect(playSfx.mock.calls.map((call) => call[0])).toEqual(['start', 'error']);
 
     controller.dismissToast();
     playSfx.mockClear();
     decodeToBuffer.mockRejectedValueOnce(new Error('decode'));
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+    await waitFor(() => expect(store.getState().phase).toBe('recording'));
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().toast?.message).toBe("Couldn't process the recording"));
+    await waitFor(() => expect(store.getState().toast?.message).toBe("Couldn't process the recording"));
     expect(playSfx.mock.calls.map((call) => call[0])).toEqual(['start', 'stop']);
 
     controller.dismissToast();
     playSfx.mockClear();
     decodeToBuffer.mockRejectedValueOnce(new Error('bad file'));
     controller.importFile(new File([new Uint8Array(16)], 'clip.wav', { type: 'audio/wav' }));
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(store.getState().toast?.message).toBe("That file couldn't be opened as audio");
     });
     expect(playSfx.mock.calls.map((call) => call[0])).toEqual(['error']);
@@ -878,17 +932,17 @@ describe('controller', () => {
 
     decodeToBuffer.mockResolvedValueOnce(makeSilent(ctx));
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+    await waitFor(() => expect(store.getState().phase).toBe('recording'));
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().toast?.message).toBe('Nothing was recorded. Try again.'));
+    await waitFor(() => expect(store.getState().toast?.message).toBe('Nothing was recorded. Try again.'));
     expect(store.getState().recording).toBe(recording);
 
     controller.dismissToast();
     decodeToBuffer.mockRejectedValueOnce(new Error('decode'));
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+    await waitFor(() => expect(store.getState().phase).toBe('recording'));
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().toast?.message).toBe("Couldn't process the recording"));
+    await waitFor(() => expect(store.getState().toast?.message).toBe("Couldn't process the recording"));
     expect(store.getState().phase).toBe('ready');
     expect(store.getState().recording).toBe(recording);
   });
@@ -901,7 +955,7 @@ describe('controller', () => {
     const recording = store.getState().recording;
     recorder.start.mockResolvedValueOnce({ cancelled: true });
     controller.toggleRecord();
-    await vi.waitFor(() => expect(store.getState().phase).toBe('ready'));
+    await waitFor(() => expect(store.getState().phase).toBe('ready'));
     expect(store.getState().recording).toBe(recording);
     expect(store.getState().toast).toBeNull();
     expect(store.getState().error).toBeNull();
@@ -949,7 +1003,7 @@ describe('controller', () => {
       expect(store.getState().effect).toEqual({ speed: 2, pitch: 1 });
       expect(track).toHaveBeenCalledWith('effect_changed', { speed: 2, pitch: 1 });
       expect(store.getState().exports.reversed.status).toBe('encoding');
-      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
       const input = renderEffectInWorker.mock.calls[0][0];
       expect(input.channels[0]).not.toBe(originalForward.getChannelData(0));
       expect(input.channels[0][4000]).toBe(originalForward.getChannelData(0)[4000]);
@@ -960,7 +1014,7 @@ describe('controller', () => {
 
       controller.setEffect('speed', 0.5);
       expect(store.getState().effect).toEqual({ speed: 0.5, pitch: 1 });
-      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(player.replace).toHaveBeenCalledTimes(2));
       ({ forward, reverse } = heard());
       expect(forward.length).toBe(16000);
       expectExactReversal(forward, reverse);
@@ -981,15 +1035,15 @@ describe('controller', () => {
       hooks.autoRender = false;
 
       controller.setEffect('speed', 2);
-      await vi.waitFor(() => expect(hooks.renders).toHaveLength(1));
+      await waitFor(() => expect(hooks.renders).toHaveLength(1));
       controller.setEffect('pitch', 2);
-      await vi.waitFor(() => expect(hooks.renders).toHaveLength(2));
+      await waitFor(() => expect(hooks.renders).toHaveLength(2));
       expect(hooks.renders[0].signal.aborted).toBe(true);
       expect(hooks.renders[1].effect).toEqual({ speed: 2, pitch: 2 });
       hooks.renders[0].resolve();
       hooks.renders[1].resolve();
 
-      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
       await waitExports();
       expect(encodeM4A).toHaveBeenCalledTimes(2);
       const lengths = encodeM4A.mock.calls.map(([arg]) => arg.channels[0].length);
@@ -1001,9 +1055,9 @@ describe('controller', () => {
       await waitExports();
       encodeM4A.mockClear();
       controller.setEffect('pitch', 2);
-      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
       const landed = performance.now();
-      await vi.waitFor(() => expect(encodeM4A).toHaveBeenCalled(), { timeout: 2000 });
+      await waitFor(() => expect(encodeM4A).toHaveBeenCalled());
       expect(performance.now() - landed).toBeGreaterThanOrEqual(350);
       await waitExports();
     });
@@ -1014,10 +1068,10 @@ describe('controller', () => {
       const [originalForward] = player.load.mock.calls.at(-1);
       hooks.autoRender = false;
       controller.setEffect('speed', 2);
-      await vi.waitFor(() => expect(hooks.renders).toHaveLength(1));
+      await waitFor(() => expect(hooks.renders).toHaveLength(1));
       hooks.renders[0].reject(new Error('worker died'));
 
-      await vi.waitFor(() => expect(store.getState().toast?.message).toBe("Couldn't change the sound"));
+      await waitFor(() => expect(store.getState().toast?.message).toBe("Couldn't change the sound"));
       expect(store.getState().effect).toEqual({ speed: 1, pitch: 1 });
       expect(player.replace.mock.calls.at(-1)[0]).toBe(originalForward);
       await waitExports();
@@ -1026,20 +1080,20 @@ describe('controller', () => {
     it('renders a new take before it becomes ready when an effect is on', async () => {
       await recordClip();
       controller.setEffect('speed', 2);
-      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
       await waitExports();
       encodeM4A.mockClear();
       hooks.autoRender = false;
 
       controller.toggleRecord();
-      await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+      await waitFor(() => expect(store.getState().phase).toBe('recording'));
       controller.toggleRecord();
-      await vi.waitFor(() => expect(hooks.renders).toHaveLength(2));
+      await waitFor(() => expect(hooks.renders).toHaveLength(2));
       expect(store.getState().phase).toBe('processing');
       expect(encodeM4A).not.toHaveBeenCalled();
       hooks.renders[1].resolve();
 
-      await vi.waitFor(() => expect(store.getState().phase).toBe('ready'));
+      await waitFor(() => expect(store.getState().phase).toBe('ready'));
       const [forward, reverse] = player.load.mock.calls.at(-1);
       expect(Math.abs(forward.length - 4000)).toBeLessThanOrEqual(1);
       expectExactReversal(forward, reverse);
@@ -1050,7 +1104,7 @@ describe('controller', () => {
     it('keeps the effect sound and its files through clear and undo', async () => {
       await recordClip();
       controller.setEffect('speed', 2);
-      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
       await waitExports();
       controller.share('reversed');
       const file = shareFiles.mock.calls[0][0];
@@ -1089,7 +1143,7 @@ describe('controller', () => {
       stop();
 
       controller.setEffect('speed', 2);
-      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
       await flush();
       track.mockClear();
       renderEffectInWorker.mockClear();
@@ -1115,7 +1169,7 @@ describe('controller', () => {
       controller.setEffect('speed', 0.5);
       expect(store.getState().effect).toEqual({ speed: 0.5, pitch: 1 });
       expect(track).toHaveBeenCalledWith('effect_changed', { speed: 0.5, pitch: 1 });
-      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
       expect(renderEffectInWorker).toHaveBeenCalledTimes(1);
       expect(renderEffectInWorker.mock.calls[0][0].effect).toEqual({ speed: 0.5, pitch: 1 });
       expect(renderEffectInWorker.mock.calls.some(([arg]) => arg.effect.speed === 2)).toBe(false);
@@ -1129,11 +1183,11 @@ describe('controller', () => {
       await recordClip();
       await waitExports();
       controller.setEffect('speed', 2);
-      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(player.replace).toHaveBeenCalledTimes(1));
       controller.setEffect('speed', 0.5);
       expect(store.getState().effect).toEqual({ speed: 0.5, pitch: 1 });
       expect(track).toHaveBeenCalledWith('effect_changed', { speed: 0.5, pitch: 1 });
-      await vi.waitFor(() => expect(player.replace).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(player.replace).toHaveBeenCalledTimes(2));
       expect(renderEffectInWorker.mock.calls.map(([arg]) => arg.effect)).toEqual([
         { speed: 2, pitch: 1 },
         { speed: 0.5, pitch: 1 },
@@ -1153,7 +1207,7 @@ describe('controller', () => {
       expect(renderEffectInWorker).not.toHaveBeenCalled();
 
       controller.toggleRecord();
-      await vi.waitFor(() => expect(store.getState().phase).toBe('recording'));
+      await waitFor(() => expect(store.getState().phase).toBe('recording'));
       track.mockClear();
       controller.setEffect('speed', 0.5);
       controller.setEffect('pitch', 2);

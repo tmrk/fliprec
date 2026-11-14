@@ -1,3 +1,4 @@
+import { visibleTimeout } from '../lib/deadline.js';
 import { setAudioSessionType } from './context.js';
 import { rmsToLevel } from './level.js';
 import { pickRecorderMimeType } from './mime.js';
@@ -13,6 +14,9 @@ const CONSTRAINTS = {
 
 const LEVEL_ATTACK = 0.35;
 const CAPTURE_START_MS = 500;
+// WebKit can drop MediaRecorder's `stop` event after an interruption. Past this much visible
+// time the take is finished with whatever data arrived instead of waiting forever.
+const STOP_TIMEOUT_MS = 4000;
 
 function errorWithKind(message, kind) {
   const error = new Error(message);
@@ -39,6 +43,17 @@ function canCapture() {
 
 function emptyResult(elapsed = 0) {
   return { blob: new Blob([], { type: '' }), mimeType: '', elapsed };
+}
+
+function stopTracks(live) {
+  if (!live || typeof live.getTracks !== 'function') return;
+  for (const track of live.getTracks()) {
+    try {
+      track.stop();
+    } catch (error) {
+      console.warn(error);
+    }
+  }
 }
 
 /**
@@ -72,7 +87,46 @@ export function createRecorder({
   let stopResolve = null;
   let arming = null;
   let hold = null;
+  let abandonStream = null;
   const trackCleanups = [];
+
+  /**
+   * getUserMedia can stay pending indefinitely (a permission sheet that never resolves in a
+   * standalone web app). A cancel settles the wait at once with null; a stream that turns up
+   * later is released straight away.
+   */
+  function requestStream() {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const settle = () => {
+        if (settled) return false;
+        settled = true;
+        abandonStream = null;
+        return true;
+      };
+      abandonStream = () => {
+        if (settle()) resolve(null);
+      };
+      let pending;
+      try {
+        pending = navigator.mediaDevices.getUserMedia(CONSTRAINTS);
+      } catch (error) {
+        if (settle()) reject(error);
+        return;
+      }
+      Promise.resolve(pending).then((live) => {
+        if (settle()) resolve(live);
+        else stopTracks(live);
+      }, (error) => {
+        if (settle()) reject(error);
+      });
+    });
+  }
+
+  function abandonPendingStream() {
+    const abandon = abandonStream;
+    if (abandon) abandon();
+  }
 
   function finishArming(value) {
     const current = arming;
@@ -205,15 +259,7 @@ export function createRecorder({
       }
       const live = stream;
       stream = null;
-      if (live) {
-        for (const track of live.getTracks()) {
-          try {
-            track.stop();
-          } catch (error) {
-            console.warn(error);
-          }
-        }
-      }
+      stopTracks(live);
       if (sourceNode) {
         try {
           sourceNode.disconnect();
@@ -268,11 +314,11 @@ export function createRecorder({
       }
       let live;
       try {
-        live = await navigator.mediaDevices.getUserMedia(CONSTRAINTS);
+        live = await requestStream();
       } catch (error) {
         throw mapMediaError(error);
       }
-      if (cancelRequested || state !== 'starting') {
+      if (!live || cancelRequested || state !== 'starting') {
         stream = live;
         cleanup();
         state = 'idle';
@@ -376,6 +422,7 @@ export function createRecorder({
   function stop() {
     if (state === 'starting') {
       cancelRequested = true;
+      abandonPendingStream();
       finishHold();
       finishArming('cancelled');
       const pending = startPromise || Promise.resolve();
@@ -392,8 +439,11 @@ export function createRecorder({
 
     return new Promise((resolve, reject) => {
       stopResolve = resolve;
+      let cancelWatchdog = () => {};
       const finish = () => {
+        cancelWatchdog();
         if (stopResolve !== resolve) return;
+        if (recorder) recorder.removeEventListener('stop', finish);
         const mime = (recorder && recorder.mimeType) || chosenMime || '';
         const blob = new Blob(chunks, { type: mime });
         const elapsed = frozenElapsed ?? 0;
@@ -408,9 +458,11 @@ export function createRecorder({
           return;
         }
         recorder.addEventListener('stop', finish);
+        cancelWatchdog = visibleTimeout(finish, STOP_TIMEOUT_MS);
         recorder.stop();
       } catch (error) {
         console.warn(error);
+        cancelWatchdog();
         if (stopResolve === resolve) {
           stopResolve = null;
           cleanup();
@@ -424,6 +476,7 @@ export function createRecorder({
   function cancel() {
     if (state === 'starting') {
       cancelRequested = true;
+      abandonPendingStream();
       finishHold();
       finishArming('cancelled');
       return;

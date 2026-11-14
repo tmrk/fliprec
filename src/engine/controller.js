@@ -1,11 +1,10 @@
-import { getContext, onContextInterrupted, unlock } from '../audio/context.js';
 import {
-  decodeToBuffer,
-  downmixToStereo,
-  limitBuffer,
-  resampleIfNeeded,
-  validateRecording,
-} from '../audio/decode.js';
+  getContext,
+  markContextStalled,
+  onContextInterrupted,
+  setAudioSessionType,
+  unlock,
+} from '../audio/context.js';
 import { isNeutralEffect, NEUTRAL_EFFECT, normalizeEffect } from '../audio/effect.js';
 import { encodeM4A, m4aFile } from '../audio/m4a.js';
 import { computePeaks } from '../audio/peaks.js';
@@ -16,6 +15,7 @@ import { reverseAudioBuffer } from '../audio/reverse.js';
 import { playSfx, setSfxEnabled } from '../audio/sfx.js';
 import { encodeWav } from '../audio/wav.js';
 import { grant, revoke, track } from '../lib/analytics.js';
+import { visibleTimeout } from '../lib/deadline.js';
 import { exportFilename } from '../lib/filenames.js';
 import * as haptics from '../lib/haptics.js';
 import { canShareFiles, downloadBlob, shareFiles } from '../lib/share.js';
@@ -32,6 +32,11 @@ const EMPTY_PEAKS = [];
 const START_ERRORS = ['mic-denied', 'mic-missing', 'unsupported', 'record-failed'];
 // Quiet period after the last Speed or Pitch tap before exports are rebuilt.
 const EFFECT_EXPORT_DELAY_MS = 400;
+// Taps on the record button while the microphone starts are ignored this long (double taps),
+// then they cancel a start that is hanging on the permission prompt.
+const START_CANCEL_GRACE_MS = 1000;
+// Backstop for a take stuck in Processing. Every step has its own shorter deadline.
+const PROCESSING_TIMEOUT_MS = 60000;
 
 let preview = null;
 let phase = 'empty';
@@ -44,6 +49,8 @@ let cancelPromise = null;
 let persistTail = Promise.resolve();
 // Frozen take length shown by the timer while a stopped recording is decoded.
 let processingElapsed = 0;
+let requestingSince = 0;
+let stopProcessingWatchdog = null;
 
 // `buffers` is the take as recorded. `active` is what is heard, timed, sought and exported:
 // the very same objects when the effect is neutral, else the take with speed and pitch applied.
@@ -69,7 +76,7 @@ const recorder = createRecorder({
   onInterrupted: () => finishRecording('interruption'),
 });
 
-const player = createPlayer(getContext);
+const player = createPlayer(getContext, { onStall: onPlaybackStall });
 
 player.onChange((playback) => {
   if (preview) return;
@@ -82,10 +89,17 @@ player.onChange((playback) => {
   if (playback.state !== 'playing') notifyTransport();
 });
 
+// Interruptions pause cleanly. `replaced` arrives while the old clock is still readable.
 onContextInterrupted(() => {
   if (preview) return;
   pauseIfPlaying();
 });
+
+function onPlaybackStall() {
+  if (preview) return;
+  markContextStalled();
+  showToast('Audio paused. Tap again to continue.');
+}
 
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
@@ -121,6 +135,19 @@ function showToast(message, options = {}) {
   if (options.actionLabel) toast.actionLabel = options.actionLabel;
   if (typeof options.action === 'function') toast.action = options.action;
   store.setState({ toast });
+}
+
+let decodeModule = null;
+
+/** Decoding is only needed once there is audio, so it stays out of the entry chunk. */
+function loadDecode() {
+  if (!decodeModule) {
+    decodeModule = import('../audio/decode.js').catch((error) => {
+      decodeModule = null;
+      throw error;
+    });
+  }
+  return decodeModule;
 }
 
 function enqueuePersist(task) {
@@ -177,8 +204,28 @@ function setExportStatus(variant, status) {
   });
 }
 
+function clearProcessingWatchdog() {
+  if (stopProcessingWatchdog) stopProcessingWatchdog();
+  stopProcessingWatchdog = null;
+}
+
+/** A take that never leaves Processing is dropped; the previous one stays. */
+function armProcessingWatchdog(id) {
+  clearProcessingWatchdog();
+  stopProcessingWatchdog = visibleTimeout(() => {
+    stopProcessingWatchdog = null;
+    if (id !== sessionId || phase !== 'processing') return;
+    sessionId += 1;
+    cancelEffectWork();
+    try { recorder.cancel(); } catch { /* already idle */ }
+    playSfx('error');
+    restoreIdle(sessionId, "Couldn't process the recording");
+  }, PROCESSING_TIMEOUT_MS);
+}
+
 function restoreIdle(id, message) {
   if (id !== sessionId) return;
+  clearProcessingWatchdog();
   const recording = store.getState().recording;
   phase = recording ? 'ready' : 'empty';
   store.setState({ phase });
@@ -229,6 +276,7 @@ function startRecording() {
   try { player.stop(); } catch { /* nothing loaded yet */ }
   const id = ++sessionId;
   phase = 'requesting';
+  requestingSince = performance.now();
   store.setState({ phase: 'requesting', error: null });
   let pending;
   try {
@@ -270,6 +318,7 @@ function finishRecording(reason) {
   try { processingElapsed = recorder.getElapsed(); } catch { processingElapsed = 0; }
   phase = 'processing';
   store.setState({ phase: 'processing' });
+  armProcessingWatchdog(id);
   if (reason === 'manual') haptics.tap();
   if (reason === 'limit') showToast('2-minute limit reached');
   if (reason === 'interruption') showToast('Recording stopped when FlipRec went to the background');
@@ -298,6 +347,9 @@ async function consumeStop(id) {
   // Once the stop cue has played, later failures only toast so two cues never collide.
   playSfx('stop');
   try {
+    const {
+      decodeToBuffer, downmixToStereo, resampleIfNeeded, validateRecording,
+    } = await loadDecode();
     const bytes = await result.blob.arrayBuffer();
     if (id !== sessionId) return;
     const ctx = getContext();
@@ -477,6 +529,7 @@ async function adopt(input) {
     effectAbort = null;
   }
   if (input.id !== sessionId) return false;
+  clearProcessingWatchdog();
   cancelEffectWork();
   if (exportAbort) exportAbort.abort();
   buffers.forward = forward;
@@ -591,12 +644,15 @@ function toggleRecord() {
     finishRecording('manual');
     return;
   }
+  if (phase === 'requesting') {
+    if (performance.now() - requestingSince >= START_CANCEL_GRACE_MS) cancelStart(sessionId);
+    return;
+  }
   if (phase === 'empty' || phase === 'ready') startRecording();
 }
 
 function togglePlay(direction) {
   if (preview || phase !== 'ready') return;
-  unlock();
   const dir = direction === 'reverse' ? 'reverse' : 'forward';
   let current;
   try {
@@ -608,6 +664,15 @@ function togglePlay(direction) {
   if (current.state === 'playing' && current.direction === dir) {
     playSfx('pause');
     player.pause();
+    return;
+  }
+  // Without `playback`, iOS treats Web Audio as ambient and the ring/silent switch mutes it.
+  setAudioSessionType('playback');
+  // May swap a context that went stale in the background, which pauses playback first.
+  unlock();
+  try {
+    current = player.getState();
+  } catch {
     return;
   }
   playSfx(dir === 'reverse' ? 'reverse' : 'play');
@@ -643,7 +708,7 @@ function share(variant = 'reversed') {
   const file = files[key];
   const status = store.getState().exports[key]?.status;
   if (!file || status !== 'ready') {
-    showToast(status === 'error' ? "Couldn't prepare audio" : 'Preparing audio...');
+    notReady(status);
     return undefined;
   }
   track('share_initiated', { variant: key });
@@ -668,6 +733,16 @@ function share(variant = 'reversed') {
     }
   }, (error) => failShare(error, file));
   return undefined;
+}
+
+/** A failed export is rebuilt when someone asks for it again. */
+function notReady(status) {
+  if (status === 'error' && phase === 'ready') {
+    showToast("Couldn't prepare audio. Trying again.");
+    ensureExports();
+    return;
+  }
+  showToast(status === 'error' ? "Couldn't prepare audio" : 'Preparing audio...');
 }
 
 function failShare(error, file) {
@@ -700,7 +775,7 @@ function download(variant, format = 'm4a') {
   const file = files[key];
   const status = store.getState().exports[key]?.status;
   if (!file || status !== 'ready') {
-    showToast(status === 'error' ? "Couldn't prepare audio" : 'Preparing audio...');
+    notReady(status);
     return;
   }
   downloadBlob(file, file.name);
@@ -721,11 +796,15 @@ function importFile(file) {
   processingElapsed = 0;
   phase = 'processing';
   store.setState({ phase: 'processing', error: null });
+  armProcessingWatchdog(id);
   void consumeImport(id, file);
 }
 
 async function consumeImport(id, file) {
   try {
+    const {
+      decodeToBuffer, downmixToStereo, limitBuffer, resampleIfNeeded, validateRecording,
+    } = await loadDecode();
     const bytes = await file.arrayBuffer();
     if (id !== sessionId) return;
     const ctx = getContext();
@@ -787,6 +866,7 @@ function clearRecording() {
   }
 
   sessionId += 1;
+  clearProcessingWatchdog();
   cancelEffectWork();
   if (exportAbort) exportAbort.abort();
   exportAbort = null;
@@ -927,6 +1007,10 @@ async function restore() {
   try {
     const record = await loadPersisted();
     if (!record?.blob) return;
+    if (seen !== sessionId || phase !== 'empty') return;
+    const {
+      decodeToBuffer, downmixToStereo, resampleIfNeeded, validateRecording,
+    } = await loadDecode();
     if (seen !== sessionId || phase !== 'empty') return;
     const ctx = getContext();
     const bytes = await record.blob.arrayBuffer();

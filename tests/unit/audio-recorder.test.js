@@ -302,6 +302,7 @@ function installStartMode(mode) {
 
 describe('createRecorder capture start', () => {
   it('stays starting until the recorder start event', async () => {
+    installStartMode('none');
     let releaseMic;
     userMedia.mediaDevices.getUserMedia.mockImplementation(() => new Promise((resolve) => {
       releaseMic = resolve;
@@ -310,11 +311,11 @@ describe('createRecorder capture start', () => {
     const pending = recorder.start();
     const stream = createFakeStream();
     releaseMic(stream);
-    await Promise.resolve();
+    await vi.waitFor(() => expect(media.instances).toHaveLength(1));
     expect(recorder.state).toBe('starting');
     expect(recorder.getElapsed()).toBe(0);
-    expect(media.instances).toHaveLength(1);
     expect(media.instances[0].state).toBe('recording');
+    media.instances[0].dispatch('start');
     await pending;
     expect(recorder.state).toBe('recording');
     expect(stream.getTracks()[0].readyState).toBe('live');
@@ -445,3 +446,72 @@ describe('createRecorder start hold', () => {
   });
 });
 
+describe('createRecorder stalls', () => {
+  it('cancels a microphone request that never settles and can start again', async () => {
+    let lateStream = null;
+    let releaseLate;
+    userMedia.mediaDevices.getUserMedia.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseLate = resolve;
+    }));
+    const recorder = makeRecorder();
+    const starting = recorder.start();
+    const stopping = recorder.stop();
+    await expect(starting).resolves.toEqual({ cancelled: true });
+    await expect(stopping).resolves.toMatchObject({ mimeType: '', elapsed: 0 });
+    expect(recorder.state).toBe('idle');
+    expect(session.type).toBe('playback');
+
+    await recorder.start();
+    expect(recorder.state).toBe('recording');
+    expect(media.instances).toHaveLength(1);
+
+    lateStream = createFakeStream();
+    releaseLate(lateStream);
+    await vi.waitFor(() => expect(lateStream.getTracks()[0].readyState).toBe('ended'));
+    expect(recorder.state).toBe('recording');
+    recorder.cancel();
+  });
+
+  it('finishes with the data it has when MediaRecorder never fires stop', async () => {
+    const recorder = makeRecorder();
+    await recorder.start();
+    const instance = media.instances[0];
+    instance.stop = vi.fn(() => {
+      instance.state = 'inactive';
+      instance.dispatch('dataavailable', { data: new Blob(['partial']) });
+    });
+    vi.useFakeTimers();
+    const stopping = recorder.stop();
+    expect(recorder.state).toBe('stopping');
+    await vi.advanceTimersByTimeAsync(3999);
+    expect(recorder.state).toBe('stopping');
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await stopping;
+    expect(await result.blob.text()).toBe('partial');
+    expect(recorder.state).toBe('idle');
+    expect(liveSince(0).filter((track) => instance.stream.getTracks().includes(track))).toHaveLength(0);
+  });
+
+  it('does not count background time against the stop deadline', async () => {
+    const recorder = makeRecorder();
+    await recorder.start();
+    const instance = media.instances[0];
+    instance.stop = vi.fn(() => {
+      instance.state = 'inactive';
+    });
+    vi.useFakeTimers();
+    const stopping = recorder.stop();
+    await vi.advanceTimersByTimeAsync(1000);
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(recorder.state).toBe('stopping');
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(2900);
+    expect(recorder.state).toBe('stopping');
+    instance.dispatch('stop');
+    await expect(stopping).resolves.toMatchObject({ elapsed: expect.any(Number) });
+    expect(recorder.state).toBe('idle');
+  });
+});

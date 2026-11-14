@@ -242,11 +242,28 @@ const Waveform = memo(function Waveform() {
     });
     const onTransport = () => redraw();
     window.addEventListener(TRANSPORT_EVENT, onTransport);
+    // WebKit can discard a canvas bitmap while the app is in the background, and nothing else
+    // repaints a paused or stopped waveform on return. Reallocate it and draw again.
+    const repaint = () => {
+      if (document.hidden) return;
+      const canvas = canvasRef.current;
+      if (canvas) canvas.width = 0;
+      colorsRef.current = readColors();
+      redraw();
+    };
+    const onVisibility = () => repaint();
+    const canvas = canvasRef.current;
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pageshow', repaint);
+    canvas?.addEventListener('contextrestored', repaint);
     redraw();
     return () => {
       observer.disconnect();
       theme.disconnect();
       window.removeEventListener(TRANSPORT_EVENT, onTransport);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pageshow', repaint);
+      canvas?.removeEventListener('contextrestored', repaint);
     };
   }, []);
 

@@ -17,7 +17,7 @@ describe('pwa config', () => {
   it('serves the app and the service worker under /fliprec/', () => {
     expect(config.base).toBe('/fliprec/');
     expect(pwaOptions.scope).toBe('/fliprec/');
-    expect(pwaOptions.registerType).toBe('autoUpdate');
+    expect(pwaOptions.registerType).toBe('prompt');
     expect(pwaOptions.injectRegister).toBe(false);
     const plugins = config.plugins.flat(Infinity);
     expect(plugins.some((plugin) => plugin && plugin.name === 'vite-plugin-pwa')).toBe(true);
@@ -61,7 +61,7 @@ describe('pwa config', () => {
       navigateFallback: 'index.html',
       cleanupOutdatedCaches: true,
       clientsClaim: true,
-      skipWaiting: true,
+      skipWaiting: false,
       runtimeCaching: [],
     });
   });

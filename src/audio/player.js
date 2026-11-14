@@ -1,5 +1,10 @@
 const FADE_SECONDS = 0.006;
 const STOP_DELAY = 0.01;
+// After a return from the background WebKit can report `running` with a clock that never moves:
+// silence, and a source that never ends. A start that has not advanced the clock by this much
+// within the check window counts as stalled.
+const STALL_CHECK_MS = 1000;
+const STALL_MIN_ADVANCE = 0.05;
 
 function clamp(value, min, max) {
   if (value < min) return min;
@@ -10,8 +15,10 @@ function clamp(value, min, max) {
 /**
  * One-shot buffer playback. A new play ramps the previous gain to 0 over 6 ms,
  * then stops that source. Stale `onended` handlers are ignored via a token.
+ * Each source keeps the context it started on, so position stays right when the
+ * shared context is replaced. `onStall` fires after a stalled start was paused.
  */
-export function createPlayer(getContext) {
+export function createPlayer(getContext, { onStall } = {}) {
   let forward = null;
   let reverse = null;
   let state = 'stopped';
@@ -68,8 +75,11 @@ export function createPlayer(getContext) {
   }
 
   /** Invalidate `entry` before stop(), which may fire onended synchronously. */
-  function retire(ctx, entry) {
+  function retire(entry) {
     activeToken += 1;
+    if (entry.stallTimer) clearTimeout(entry.stallTimer);
+    entry.stallTimer = 0;
+    const ctx = entry.ctx;
     const now = ctx.currentTime;
     try {
       const param = entry.gain.gain;
@@ -82,6 +92,25 @@ export function createPlayer(getContext) {
       console.warn(error);
     }
     if (active === entry) active = null;
+  }
+
+  function watchForStall(entry) {
+    if (typeof onStall !== 'function') return;
+    const wallStart = performance.now();
+    const audioStart = entry.ctx.currentTime;
+    entry.stallTimer = setTimeout(() => {
+      entry.stallTimer = 0;
+      if (disposed || active !== entry || state !== 'playing') return;
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (performance.now() - wallStart < STALL_CHECK_MS / 2) return;
+      if (entry.ctx.currentTime - audioStart >= STALL_MIN_ADVANCE) return;
+      pause();
+      try {
+        onStall();
+      } catch (error) {
+        console.warn(error);
+      }
+    }, STALL_CHECK_MS);
   }
 
   function arm(source, gain, token) {
@@ -106,7 +135,7 @@ export function createPlayer(getContext) {
 
     const ctx = getContext();
     resumeIfNeeded(ctx);
-    if (active) retire(ctx, active);
+    if (active) retire(active);
 
     direction = dir;
     const duration = durationOf(dir);
@@ -132,18 +161,18 @@ export function createPlayer(getContext) {
     arm(source, gain, token);
     source.start(now, offset);
 
-    active = { source, gain, token };
+    active = { source, gain, token, ctx, stallTimer: 0 };
     anchorOffset = offset;
     startedAt = now;
     state = 'playing';
+    watchForStall(active);
     emit();
   }
 
   function pause() {
     if (state !== 'playing' || !active) return;
-    const ctx = getContext();
-    const position = clamp(anchorOffset + (ctx.currentTime - startedAt), 0, durationOf());
-    retire(ctx, active);
+    const position = clamp(anchorOffset + (active.ctx.currentTime - startedAt), 0, durationOf());
+    retire(active);
     anchorOffset = position;
     startedAt = 0;
     state = 'paused';
@@ -169,7 +198,7 @@ export function createPlayer(getContext) {
   function stop() {
     if (active) {
       try {
-        retire(getContext(), active);
+        retire(active);
       } catch (error) {
         console.warn(error);
         active = null;
@@ -219,7 +248,8 @@ export function createPlayer(getContext) {
   function getPosition() {
     if (state === 'stopped') return 0;
     if (state === 'paused') return anchorOffset;
-    const position = anchorOffset + (getContext().currentTime - startedAt);
+    const clock = active ? active.ctx : getContext();
+    const position = anchorOffset + (clock.currentTime - startedAt);
     return clamp(position, 0, durationOf());
   }
 

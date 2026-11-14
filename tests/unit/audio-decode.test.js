@@ -101,6 +101,16 @@ describe('decodeToBuffer', () => {
     };
     await expect(decodeToBuffer(ctx, new ArrayBuffer(1))).resolves.toBe(first);
   });
+
+  it('rejects with a TimeoutError when the decoder never answers', async () => {
+    vi.useFakeTimers();
+    const ctx = { decodeAudioData: () => new Promise(() => {}) };
+    const pending = decodeToBuffer(ctx, new ArrayBuffer(1));
+    const outcome = expect(pending).rejects.toMatchObject({ name: 'TimeoutError' });
+    await vi.advanceTimersByTimeAsync(45000);
+    await outcome;
+    vi.useRealTimers();
+  });
 });
 
 describe('limitBuffer', () => {

@@ -11,7 +11,7 @@ class FakeWorker {
     this.url = String(url);
     this.options = options;
     this.posted = [];
-    this.listeners = { message: [], error: [] };
+    this.listeners = { message: [], error: [], messageerror: [] };
     this.terminated = false;
     FakeWorker.instances.push(this);
   }
@@ -137,5 +137,20 @@ describe('renderEffectInWorker', () => {
     const [out] = await renderEffectInWorker({ channels: [input], sampleRate: 8000, effect });
     expect(Math.abs(out.length - effectLength(input.length, effect))).toBeLessThanOrEqual(2);
     expect(out.every(Number.isFinite)).toBe(true);
+  });
+
+  it('terminates a worker that stops answering and uses a fresh one next time', async () => {
+    vi.useFakeTimers();
+    const { renderEffectInWorker } = await loadClient();
+    const pending = renderEffectInWorker({ channels: [ramp(800)], sampleRate: 8000, effect: { speed: 2, pitch: 1 } });
+    const outcome = expect(pending).rejects.toMatchObject({ name: 'TimeoutError' });
+    await vi.advanceTimersByTimeAsync(15100);
+    await outcome;
+    expect(FakeWorker.instances[0].terminated).toBe(true);
+
+    void renderEffectInWorker({ channels: [ramp(800)], sampleRate: 8000, effect: { speed: 2, pitch: 1 } })
+      .catch(() => {});
+    expect(FakeWorker.instances).toHaveLength(2);
+    vi.useRealTimers();
   });
 });

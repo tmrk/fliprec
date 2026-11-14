@@ -5,7 +5,9 @@ import { VitePWA } from 'vite-plugin-pwa';
 const DESCRIPTION = 'Record your voice and play it backwards instantly. Share or download real M4A audio. Free, private and works offline. No sign-up, nothing uploaded.';
 
 export const pwaOptions = {
-  registerType: 'autoUpdate',
+  // A new version waits and is taken while the app is hidden and idle (src/lib/updates.js);
+  // auto-update reloaded the page mid-session.
+  registerType: 'prompt',
   injectRegister: false,
   scope: '/fliprec/',
   includeAssets: [
@@ -41,7 +43,7 @@ export const pwaOptions = {
     navigateFallback: 'index.html',
     cleanupOutdatedCaches: true,
     clientsClaim: true,
-    skipWaiting: true,
+    skipWaiting: false,
     // Recordings are blob: URLs. Precache the app shell only; no runtime routes.
     runtimeCaching: [],
   },

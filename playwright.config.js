@@ -7,8 +7,9 @@ const mediaArgs = [
 
 export default defineConfig({
   testDir: 'tests/e2e',
-  fullyParallel: false,
-  workers: 1,
+  // Every test gets its own browser context (and IndexedDB), so specs run side by side.
+  fullyParallel: true,
+  workers: process.env.CI ? 2 : 4,
   retries: process.env.CI ? 1 : 0,
   timeout: 60_000,
   use: {
@@ -25,7 +26,9 @@ export default defineConfig({
       },
     },
     {
+      // Same engine as `chromium`; only the phone layout differs, so only layout runs here.
       name: 'mobile-chromium',
+      testMatch: /layout\.spec\.js/,
       use: {
         ...devices['Pixel 7'],
         launchOptions: { args: mediaArgs },

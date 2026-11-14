@@ -1,6 +1,5 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { registerSW } from 'virtual:pwa-register';
 import App from './App.jsx';
 import { controller } from './engine/controller.js';
 import { initAnalytics } from './lib/analytics.js';
@@ -12,7 +11,7 @@ installInputModality();
 document.addEventListener('touchstart', () => {}, { passive: true });
 
 if (import.meta.env.PROD) {
-  registerSW({ immediate: true });
+  void import('./lib/sw.js').then(({ startServiceWorker }) => startServiceWorker());
   // Keep the encode worker and its lazy AAC encoder in the precache. Importing the
   // constructor does not start a worker and stays out of the initial script.
   void import('./audio/encode.worker.js?worker');

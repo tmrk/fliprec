@@ -27,6 +27,11 @@ function installContext({ webkit = false, rejectOptions = false, events = true, 
       this.options = options;
       this.sampleRate = 48000;
       this.state = 'suspended';
+      this.currentTime = 0;
+      this.close = vi.fn(() => {
+        this.state = 'closed';
+        return Promise.resolve();
+      });
       this.destination = { id: 'destination' };
       this.sources = [];
       this.resume = vi.fn(() => {
@@ -178,7 +183,7 @@ describe('setAudioSessionType', () => {
 });
 
 describe('onContextInterrupted', () => {
-  it('notifies on interrupted and ignores other states', async () => {
+  it('notifies whenever the context stops running on its own', async () => {
     const { created } = installContext();
     const { getContext, onContextInterrupted } = await loadContext();
     const ctx = getContext();
@@ -187,17 +192,17 @@ describe('onContextInterrupted', () => {
 
     ctx.state = 'running';
     ctx.emitState();
-    ctx.state = 'suspended';
-    ctx.emitState();
     expect(seen).toEqual([]);
 
     ctx.state = 'interrupted';
     ctx.emitState();
-    expect(seen).toEqual(['interrupted']);
+    ctx.state = 'suspended';
+    ctx.emitState();
+    expect(seen).toEqual(['interrupted', 'suspended']);
 
     unsubscribe();
     ctx.emitState();
-    expect(seen).toEqual(['interrupted']);
+    expect(seen).toEqual(['interrupted', 'suspended']);
     expect(created).toHaveLength(1);
   });
 
@@ -216,5 +221,121 @@ describe('onContextInterrupted', () => {
     ctx.onstatechange();
     expect(seen).toEqual(['ok']);
     expect(warn).toHaveBeenCalled();
+  });
+});
+
+function setHidden(value) {
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
+describe('stale context recovery', () => {
+  afterEach(() => {
+    delete document.hidden;
+  });
+
+  it('replaces an interrupted context on the next gesture and unlocks the new one', async () => {
+    const { created } = installContext();
+    const { getContext, onContextInterrupted, unlock } = await loadContext();
+    const old = unlock();
+    const seen = [];
+    onContextInterrupted((reason) => seen.push([reason, old.close.mock.calls.length]));
+
+    old.state = 'interrupted';
+    old.emitState();
+    const fresh = unlock();
+
+    expect(created).toHaveLength(2);
+    expect(fresh).not.toBe(old);
+    expect(getContext()).toBe(fresh);
+    // `replaced` is heard before the old context closes, so playback can read its clock.
+    expect(seen).toEqual([['interrupted', 0], ['replaced', 0]]);
+    expect(old.close).toHaveBeenCalledTimes(1);
+    expect(fresh.resume).toHaveBeenCalledTimes(1);
+    expect(fresh.sources).toHaveLength(1);
+    expect(fresh.sources[0].start).toHaveBeenCalledWith(0);
+
+    old.state = 'interrupted';
+    old.emitState();
+    expect(seen).toHaveLength(2);
+  });
+
+  it('keeps a context that suspended before any gesture and was never backgrounded', async () => {
+    const { created } = installContext();
+    const { getContext, unlock } = await loadContext();
+    const ctx = getContext();
+    expect(ctx.state).toBe('suspended');
+    expect(unlock()).toBe(ctx);
+    expect(created).toHaveLength(1);
+  });
+
+  it('replaces a context that is still suspended after the app was in the background', async () => {
+    const { created } = installContext({ resume: (ctx) => { ctx.state = 'suspended'; return Promise.resolve(); } });
+    const { unlock } = await loadContext();
+    const ctx = unlock();
+    setHidden(true);
+    setHidden(false);
+    const fresh = unlock();
+    expect(fresh).not.toBe(ctx);
+    expect(created).toHaveLength(2);
+  });
+
+  it('keeps a running context whose clock advances after a return', async () => {
+    const { created } = installContext();
+    const { unlock } = await loadContext();
+    const ctx = unlock();
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    setHidden(true);
+    setHidden(false);
+    now.mockReturnValue(2000);
+    ctx.currentTime += 0.98;
+    expect(unlock()).toBe(ctx);
+    expect(created).toHaveLength(1);
+  });
+
+  it('replaces a running context whose clock stood still after a return', async () => {
+    const { created } = installContext();
+    const { unlock } = await loadContext();
+    const ctx = unlock();
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    setHidden(true);
+    setHidden(false);
+    now.mockReturnValue(2000);
+    expect(unlock()).not.toBe(ctx);
+    expect(created).toHaveLength(2);
+  });
+
+  it('replaces the context after playback reported a stall', async () => {
+    const { created } = installContext();
+    const { markContextStalled, unlock } = await loadContext();
+    const ctx = unlock();
+    expect(unlock()).toBe(ctx);
+    markContextStalled();
+    const fresh = unlock();
+    expect(fresh).not.toBe(ctx);
+    expect(unlock()).toBe(fresh);
+    expect(created).toHaveLength(2);
+  });
+});
+
+describe('setAudioSessionType reassignment', () => {
+  it('leaves the session alone when the type already matches', async () => {
+    installContext();
+    const { setAudioSessionType } = await loadContext();
+    const writes = [];
+    let type = 'playback';
+    globalThis.navigator.audioSession = {
+      get type() {
+        return type;
+      },
+      set type(value) {
+        writes.push(value);
+        type = value;
+      },
+    };
+    setAudioSessionType('playback');
+    setAudioSessionType('play-and-record');
+    setAudioSessionType('play-and-record');
+    expect(writes).toEqual(['play-and-record']);
   });
 });

@@ -84,8 +84,9 @@ const RecordButton = memo(function RecordButton() {
   }, [phase]);
 
   function onClick() {
-    if (requesting || phase === 'processing') return;
-    haptics.tap();
+    if (phase === 'processing') return;
+    // While the microphone starts, a tap after a short grace cancels a start that hangs.
+    if (!requesting) haptics.tap();
     controller.toggleRecord();
   }
 
@@ -107,7 +108,6 @@ const RecordButton = memo(function RecordButton() {
       data-sfx="off"
       onClick={onClick}
       disabled={phase === 'processing'}
-      aria-disabled={requesting ? 'true' : undefined}
       aria-pressed={recording}
       aria-label={requesting ? 'Starting microphone' : recording ? 'Stop recording' : 'Start recording'}
     >

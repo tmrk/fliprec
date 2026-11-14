@@ -1,4 +1,8 @@
+import { withDeadline } from '../lib/deadline.js';
+
 const MIN_SECONDS = 0.25;
+// WebKit's decoder occasionally never calls back. A 5-minute import decodes in a few seconds.
+export const DECODE_TIMEOUT_MS = 45000;
 // 1e-4 is not exact in float32. Use the value a Float32Array actually stores.
 const MIN_PEAK = Math.fround(1e-4);
 
@@ -9,11 +13,12 @@ function asError(error) {
 
 /**
  * Promise and callback forms. The buffer is copied first because Safari
- * detaches the ArrayBuffer handed to decodeAudioData.
+ * detaches the ArrayBuffer handed to decodeAudioData. Rejects with a
+ * TimeoutError when the decoder never answers.
  */
 export function decodeToBuffer(ctx, arrayBuffer) {
   const copy = arrayBuffer.slice(0);
-  return new Promise((resolve, reject) => {
+  const decoding = new Promise((resolve, reject) => {
     let settled = false;
     const succeed = (buffer) => {
       if (settled) return;
@@ -36,6 +41,7 @@ export function decodeToBuffer(ctx, arrayBuffer) {
       result.then(succeed, fail);
     }
   });
+  return withDeadline(decoding, DECODE_TIMEOUT_MS, { message: 'Decoding timed out' });
 }
 
 /** Keep the start of the buffer when it is longer than `maxSeconds`. */
@@ -97,7 +103,13 @@ export function resampleIfNeeded(buf, maxRate = 48000) {
   source.buffer = buf;
   source.connect(offline.destination);
   source.start(0);
-  return offline.startRendering();
+  const rendering = new Promise((resolve, reject) => {
+    // Older WebKit returns nothing and reports through oncomplete.
+    offline.oncomplete = (event) => resolve(event.renderedBuffer);
+    const pending = offline.startRendering();
+    if (pending && typeof pending.then === 'function') pending.then(resolve, reject);
+  });
+  return withDeadline(rendering, DECODE_TIMEOUT_MS, { message: 'Resampling timed out' });
 }
 
 /** Too short or effectively silent. Peak is compared against 1e-4. */
