@@ -275,5 +275,5 @@ export function installPreview() {
         : scenario.state.analyticsAvailable,
   });
   setPreviewModel(scenario.model);
-  if (scenario.pressed) holdPressed(['.fr-record', '.fr-tile--reverse', '.fr-fx']);
+  if (scenario.pressed) holdPressed(['.fr-record', '.fr-tile--reverse', '.fr-fx__half--up']);
 }

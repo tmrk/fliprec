@@ -1,104 +1,183 @@
+/*
+ * Speed and Pitch rockers beside the record shutter. The rocker is centred on the shutter and
+ * never grows the row; the label hangs underneath it. On the narrowest phones the rocker
+ * narrows so it keeps clear of the shutter.
+ */
 .fr-fx {
-  justify-self: center;
+  --fx-h: 104px;
+  --fx-h: clamp(100px, calc(var(--rec-size) - 28px), 124px);
+  --fx-pad: 4px;
+  position: relative;
+  justify-self: stretch;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  min-width: 64px;
-  padding: 4px 4px 2px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.fr-fx__rocker {
+  position: relative;
+  width: 68px;
+  width: min(68px, calc(100% - 16px));
+  height: var(--fx-h);
+  padding: var(--fx-pad);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--fx-pad);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: var(--shadow-tile);
+  transition: box-shadow 180ms ease;
+}
+
+/* Hairline between the halves, hidden while either half is lit. */
+.fr-fx__rocker::before {
+  content: '';
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 50%;
+  height: 1px;
+  margin-top: -0.5px;
+  background: var(--line);
+  transition: opacity 180ms ease;
+}
+
+.fr-fx--on .fr-fx__rocker::before {
+  opacity: 0;
+}
+
+.fr-fx__half {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
   border-radius: 20px;
   background: transparent;
   box-shadow: none;
-  color: var(--text);
+  color: var(--text-2);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
 }
 
-.fr-fx__dial {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: var(--shadow-tile);
-  font-family: var(--font-display);
-  font-size: 19px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
+.fr-fx__half[aria-pressed='true'] {
+  color: var(--bg);
+}
+
+.fr-fx__half.fr-press[data-pressed],
+.fr-fx__half.fr-press:active {
+  transform: scale(0.94);
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+/* A lit half keeps the thumb visible under the press. */
+.fr-fx__half[aria-pressed='true'].fr-press[data-pressed],
+.fr-fx__half[aria-pressed='true'].fr-press:active {
+  background: transparent;
+}
+
+.fr-fx__thumb {
+  position: absolute;
+  z-index: 0;
+  left: var(--fx-pad);
+  right: var(--fx-pad);
+  top: var(--fx-pad);
+  height: calc((var(--fx-h) - 3 * var(--fx-pad)) / 2);
+  border-radius: 20px;
+  background: var(--text);
+  opacity: 0;
+  translate: 0 0;
+  scale: 0.86;
   transition:
+    translate var(--dur-spring) var(--ease-spring),
+    scale var(--dur-spring) var(--ease-spring),
+    opacity 160ms ease,
     background-color 180ms ease,
-    color 180ms ease,
-    box-shadow 180ms ease,
+    filter 180ms ease;
+  pointer-events: none;
+}
+
+.fr-fx[data-side='down'] .fr-fx__thumb {
+  translate: 0 calc(100% + var(--fx-pad));
+}
+
+.fr-fx--on .fr-fx__thumb {
+  opacity: 1;
+  scale: 1;
+}
+
+/* Turning on from normal: grow in place instead of sliding from the last side. */
+.fr-fx--enter .fr-fx__thumb {
+  transition:
+    scale var(--dur-spring) var(--ease-spring),
+    opacity 160ms ease,
+    background-color 180ms ease,
     filter 180ms ease;
 }
 
+.fr-fx--on .fr-fx__half[aria-pressed='true'][data-pressed] ~ .fr-fx__thumb,
+.fr-fx--on .fr-fx__half[aria-pressed='true']:active ~ .fr-fx__thumb {
+  scale: 0.94;
+  filter: brightness(0.92);
+  transition:
+    translate var(--dur-spring) var(--ease-spring),
+    scale var(--dur-press) var(--ease-press),
+    opacity 160ms ease,
+    filter 0ms linear;
+}
+
+/* The half that was just turned on is usually still held: keep it from sliding in. */
+.fr-fx--enter .fr-fx__half[aria-pressed='true'][data-pressed] ~ .fr-fx__thumb,
+.fr-fx--enter .fr-fx__half[aria-pressed='true']:active ~ .fr-fx__thumb {
+  transition:
+    scale var(--dur-press) var(--ease-press),
+    opacity 160ms ease,
+    filter 0ms linear;
+}
+
 .fr-fx__label {
+  position: absolute;
+  top: calc(50% + var(--fx-h) / 2 + 6px);
+  left: 0;
+  right: 0;
+  text-align: center;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  line-height: 1.2;
+  line-height: 14px;
   color: var(--text-2);
   transition: color 180ms ease;
 }
 
-.fr-fx--on .fr-fx__dial {
-  background: var(--text);
+/* Before a take exists and while recording: visible, quiet, inert. */
+.fr-fx[data-disabled] .fr-fx__rocker {
+  box-shadow: none;
+}
+
+.fr-fx[data-disabled] .fr-fx__half,
+.fr-fx[data-disabled] .fr-fx__label {
+  color: var(--text-3);
+}
+
+.fr-fx[data-disabled] .fr-fx__half[aria-pressed='true'] {
   color: var(--bg);
 }
 
-/* The wrapper never takes the generic pressed fill; the dial does. */
-.fr-fx.fr-press[data-pressed],
-.fr-fx.fr-press:active {
-  transform: scale(0.92);
-  background: transparent;
-  box-shadow: none;
+.fr-fx[data-disabled] .fr-fx__thumb {
+  background: var(--text-3);
 }
 
-.fr-fx.fr-press[data-pressed] .fr-fx__dial,
-.fr-fx.fr-press:active .fr-fx__dial {
-  background: var(--surface-2);
-  box-shadow: var(--shadow-tile-pressed);
-  transition: none;
-}
-
-.fr-fx--on.fr-press[data-pressed] .fr-fx__dial,
-.fr-fx--on.fr-press:active .fr-fx__dial {
-  background: var(--text);
-  filter: brightness(0.92);
-}
-
-.fr-fx[aria-disabled='true'] .fr-fx__dial {
-  box-shadow: none;
-  color: var(--text-3);
-}
-
-.fr-fx[aria-disabled='true'] .fr-fx__label {
-  color: var(--text-3);
-}
-
-.fr-fx[aria-disabled='true'].fr-press[data-pressed],
-.fr-fx[aria-disabled='true'].fr-press:active {
+.fr-fx__half[aria-disabled='true'].fr-press[data-pressed],
+.fr-fx__half[aria-disabled='true'].fr-press:active {
   transform: none;
   background: transparent;
   box-shadow: none;
   filter: none;
-}
-
-.fr-fx[aria-disabled='true'].fr-press[data-pressed] .fr-fx__dial,
-.fr-fx[aria-disabled='true'].fr-press:active .fr-fx__dial {
-  background: var(--surface);
-  box-shadow: none;
-  filter: none;
-}
-
-/* Still shows that an effect is on while recording or before a take, just dimmed. */
-.fr-fx--on[aria-disabled='true'] .fr-fx__dial,
-.fr-fx--on[aria-disabled='true'].fr-press[data-pressed] .fr-fx__dial,
-.fr-fx--on[aria-disabled='true'].fr-press:active .fr-fx__dial {
-  background: var(--text-3);
-  color: var(--bg);
 }

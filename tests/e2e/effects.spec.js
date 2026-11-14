@@ -78,22 +78,37 @@ test('Speed and Pitch change what is heard, shared and saved @chromium', async (
   const errors = trackErrors(page);
   await page.goto('./');
 
-  const speed = page.locator('.fr-fx').first();
-  const pitch = page.locator('.fr-fx').last();
-  await expect(speed).toHaveAttribute('aria-disabled', 'true');
-  await expect(pitch).toHaveAttribute('aria-disabled', 'true');
-  await expect(speed).toHaveAccessibleName('Speed, normal');
+  const speed = page.getByRole('group', { name: 'Speed' });
+  const pitch = page.getByRole('group', { name: 'Pitch' });
+  const fast = speed.getByRole('button', { name: 'Fast' });
+  const slow = speed.getByRole('button', { name: 'Slow' });
+  const high = pitch.getByRole('button', { name: 'High' });
+  const low = pitch.getByRole('button', { name: 'Low' });
+
+  await expect(fast).toHaveAttribute('aria-disabled', 'true');
+  await expect(slow).toHaveAttribute('aria-disabled', 'true');
+  await expect(high).toHaveAttribute('aria-disabled', 'true');
+  await expect(low).toHaveAttribute('aria-disabled', 'true');
+  await expect(speed).toHaveAttribute('data-disabled', '');
+  await expect(pitch).toHaveAttribute('data-disabled', '');
 
   await importAudio(page, fixture.bytes, { closeSheet: true });
   await waitForShareReady(page);
-  await expect(speed).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(fast).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(slow).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(high).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(low).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(fast).toHaveAttribute('aria-pressed', 'false');
+  await expect(slow).toHaveAttribute('aria-pressed', 'false');
+  await expect(high).toHaveAttribute('aria-pressed', 'false');
+  await expect(low).toHaveAttribute('aria-pressed', 'false');
 
   const dir = await mkdtemp(join(tmpdir(), 'fliprec-fx-'));
   try {
-    // Speed 2x: half as long, an octave up.
-    await speed.click();
-    await expect(speed).toHaveAccessibleName('Speed, fast');
-    await expect(speed.locator('.fr-fx__dial')).toHaveText('2×');
+    // Fast: half as long, an octave up.
+    await fast.click();
+    await expect(fast).toHaveAttribute('aria-pressed', 'true');
+    await expect(slow).toHaveAttribute('aria-pressed', 'false');
     await expect(speed).toHaveClass(/fr-fx--on/);
     await freshExports(page);
     expect(Math.abs(parseClock(await readTimer(page)) - 1.5)).toBeLessThanOrEqual(0.1);
@@ -104,11 +119,11 @@ test('Speed and Pitch change what is heard, shared and saved @chromium', async (
     expect(Math.abs(channelFrequency(saved.original.samples, 2, 1, rate) - 1320)).toBeLessThan(13);
     expect(maxAbsDiff(saved.reversed.samples, reverseInterleaved(saved.original.samples, 2))).toBeLessThanOrEqual(1);
 
-    // Pitch 1/2x on top: still half as long, back at the original pitch.
-    await pitch.click();
-    await pitch.click();
-    await expect(pitch).toHaveAccessibleName('Pitch, low');
-    await expect(pitch.locator('.fr-fx__dial')).toHaveText('½×');
+    // Low on Pitch: still half as long, back at the original pitch.
+    await low.click();
+    await expect(low).toHaveAttribute('aria-pressed', 'true');
+    await expect(high).toHaveAttribute('aria-pressed', 'false');
+    await expect(pitch).toHaveClass(/fr-fx--on/);
     await freshExports(page);
     saved = await saveAll(page, dir, 'fast-low');
     expect(Math.abs(m4aDuration(saved.m4aPath) - 1.5)).toBeLessThanOrEqual(0.08);
@@ -116,13 +131,13 @@ test('Speed and Pitch change what is heard, shared and saved @chromium', async (
     expect(Math.abs(channelFrequency(saved.original.samples, 2, 1, rate) - 660)).toBeLessThan(7);
     expect(maxAbsDiff(saved.reversed.samples, reverseInterleaved(saved.original.samples, 2))).toBeLessThanOrEqual(1);
 
-    // Back to 1x / 1x: the untouched take again.
-    await speed.click();
-    await speed.click();
-    await pitch.click();
-    await expect(speed).toHaveAccessibleName('Speed, normal');
-    await expect(pitch).toHaveAccessibleName('Pitch, normal');
+    // Tap each lit word again: back to normal, the untouched take.
+    await fast.click();
+    await expect(fast).toHaveAttribute('aria-pressed', 'false');
+    await low.click();
+    await expect(low).toHaveAttribute('aria-pressed', 'false');
     await expect(speed).not.toHaveClass(/fr-fx--on/);
+    await expect(pitch).not.toHaveClass(/fr-fx--on/);
     await freshExports(page);
     expect(Math.abs(parseClock(await readTimer(page)) - 3)).toBeLessThanOrEqual(0.1);
     saved = await saveAll(page, dir, 'normal');
@@ -130,6 +145,14 @@ test('Speed and Pitch change what is heard, shared and saved @chromium', async (
     const pcm = await decodeToF32(saved.m4aPath, { channels: 2, sampleRate: 48000 });
     expect(bestNormalizedCorrelation(fixture.left, pcm[0])).toBeGreaterThan(0.9);
     expect(bestNormalizedCorrelation(fixture.right, pcm[1])).toBeGreaterThan(0.9);
+
+    // Slow while Fast is lit switches straight across.
+    await fast.click();
+    await expect(fast).toHaveAttribute('aria-pressed', 'true');
+    await slow.click();
+    await expect(fast).toHaveAttribute('aria-pressed', 'false');
+    await expect(slow).toHaveAttribute('aria-pressed', 'true');
+    await expect(speed).toHaveClass(/fr-fx--on/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -142,7 +165,7 @@ test('Speed and Pitch keep playback going @chromium', async ({ page }) => {
   const play = page.locator('.fr-tile--reverse');
   await play.click();
   await expect(play).toHaveAttribute('aria-pressed', 'true');
-  await page.locator('.fr-fx').first().click();
+  await page.getByRole('button', { name: 'Fast' }).click();
   await page.waitForTimeout(300);
   await expect(play).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.fr-status')).toHaveText('Playing reversed');

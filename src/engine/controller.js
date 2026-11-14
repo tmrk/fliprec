@@ -6,7 +6,7 @@ import {
   resampleIfNeeded,
   validateRecording,
 } from '../audio/decode.js';
-import { isNeutralEffect, NEUTRAL_EFFECT, nextStep, normalizeEffect } from '../audio/effect.js';
+import { isNeutralEffect, NEUTRAL_EFFECT, normalizeEffect } from '../audio/effect.js';
 import { encodeM4A, m4aFile } from '../audio/m4a.js';
 import { computePeaks } from '../audio/peaks.js';
 import { createPlayer } from '../audio/player.js';
@@ -427,10 +427,12 @@ function applyEffect() {
   });
 }
 
-function cycleEffect(kind) {
+/** Set Speed or Pitch to 1, 2 or 0.5. Repeating the current value does nothing. */
+function setEffect(kind, value) {
   const key = kind === 'pitch' ? 'pitch' : 'speed';
   const current = normalizeEffect(store.getState().effect);
-  const next = { ...current, [key]: nextStep(current[key]) };
+  const next = normalizeEffect({ ...current, [key]: value });
+  if (sameEffect(current, next)) return;
   if (preview) {
     store.setState({ effect: next });
     return;
@@ -990,7 +992,7 @@ function getLevelHistory(count) {
 export const controller = {
   toggleRecord,
   togglePlay,
-  cycleEffect,
+  setEffect,
   seek,
   share,
   download,
